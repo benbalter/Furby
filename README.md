@@ -186,13 +186,14 @@ The `copilot_eyes.py` script creates a custom DLC that displays the GitHub Copil
 python copilot_eyes.py
 ```
 
-This will generate a `copilot_furby.dlc` file that you can upload to your Furby Connect. The script uses custom eye images with cyan/blue gradient colors matching GitHub Copilot's branding, featuring a hexagonal design and animated pulsing effect.
+This will generate a `copilot_furby.dlc` file that you can upload to your Furby Connect. The script uses custom eye images based on the official Copilot logo design, featuring rounded square goggle/lens shapes with cyan/blue gradient colors and animated pulsing effects.
 
 **Features:**
-- Animated pulsing effect with 4 frames
+- Goggle/lens design matching official Copilot logo
+- Animated pulsing/glowing effect with 4 frames
 - Cyan/blue gradient matching Copilot branding
-- Hexagonal logo design
-- Glowing luminous appearance
+- White goggle frames with reflections
+- 3D depth with gradient shading
 
 You can customize the eye images or create your own by replacing the GIF files in the `images/copilot_eyes/` directory. Just make sure they are 128x128 pixels with a 64-color palette.
 

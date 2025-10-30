@@ -1,6 +1,6 @@
 # GitHub Copilot Eyes for Furby Connect
 
-This directory contains custom eye images designed to display the GitHub Copilot logo on Furby's eyes with animated pulsing effect.
+This directory contains custom eye images designed to display the GitHub Copilot logo on Furby's eyes with animated pulsing effect, based on the official Copilot logo design.
 
 ![Copilot Eyes Preview](preview.png)
 
@@ -11,13 +11,15 @@ This directory contains custom eye images designed to display the GitHub Copilot
 - `left_0.gif` through `left_3.gif` - Animation frames for left eye
 - `right_0.gif` through `right_3.gif` - Animation frames for right eye
 - `preview.png` - Preview image showing both eyes
+- `animated_preview.png` - Shows all 4 animation frames
 
 ## Features
 
-- **Animated pulsing effect**: Subtle breathing animation with 4 frames
+- **Goggle/lens design**: Rounded square lenses matching the official Copilot logo
+- **Animated pulsing effect**: Subtle breathing/glowing animation with 4 frames
 - **Cyan/blue gradient**: Matches GitHub Copilot's brand colors
-- **Hexagonal design**: Inspired by the GitHub Copilot logo
-- **Glowing effect**: Outer glow creates a luminous appearance
+- **White frame**: Goggle frame with reflections and highlights
+- **Depth effects**: Gradient shading and purple tints for 3D appearance
 
 ## Usage
 
@@ -43,9 +45,10 @@ make_copilot_eyes(animated=False)
 The eye images follow the Furby Connect DLC specifications:
 - **Size**: 128x128 pixels
 - **Format**: GIF with indexed color palette
-- **Colors**: Up to 64 colors in the palette
-- **Design**: Features the GitHub Copilot logo design in cyan/blue gradient tones
-- **Animation**: 4 frames with subtle pulsing effect
+- **Colors**: 64 colors in the palette
+- **Design**: Rounded square goggle/lens design based on official GitHub Copilot logo
+- **Colors**: Cyan/blue gradient with white frame elements
+- **Animation**: 4 frames with subtle pulsing and glow effects
 
 ## Customization
 

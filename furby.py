@@ -1383,7 +1383,7 @@ class dlc(object):
 							for i in range(min(len(rawbytes), len(newbytes))):
 								if rawbytes[i] != newbytes[i]:
 									break
-							raise AssertionError("Test failed: error at offset 0x%x\n\texpected %02x, got %02x" % (i, ord(rawbytes[i]), ord(newbytes[i]) ))
+							raise AssertionError("Test failed: error at offset 0x%x\n\texpected %02x, got %02x" % (i, rawbytes[i], newbytes[i]))
 						else:
 							print("\tTest Successful!")
 

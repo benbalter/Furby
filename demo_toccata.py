@@ -75,7 +75,7 @@ def make_toccata_furby(dlc_in="./dlc/dlc2/tu003410.dlc",
     
     # Check if files exist
     if not os.path.exists(dlc_in):
-        raise IOError("Input DLC file not found: %s" % dlc_in)
+        raise OSError("Input DLC file not found: %s" % dlc_in)
     
     if not os.path.exists(toccata_audio):
         print("WARNING: Toccata audio file not found: %s" % toccata_audio)
@@ -145,7 +145,7 @@ def create_multi_track_toccata(dlc_in="./dlc/dlc2/tu003410.dlc",
     
     # Check if files exist
     if not os.path.exists(dlc_in):
-        raise IOError("Input DLC file not found: %s" % dlc_in)
+        raise OSError("Input DLC file not found: %s" % dlc_in)
     
     audio_files = [toccata_intro, toccata_main, toccata_climax]
     missing_files = [f for f in audio_files if not os.path.exists(f)]

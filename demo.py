@@ -57,10 +57,8 @@ def make_hacked_inverting(dlc_in="./dlc/dlc2/tu003410.dlc", left_gif="./images/d
 
 	#Convenient transparent cel is currently at 0, leave it there.
 	#Move convenient blank cell to cel 1. (It's currently at number 17.)
-	blank_cel = []
-	for y in range(64):
-		for x in range(64):
-			D.dlc_sections["CEL"].cels[1][y][x] = D.dlc_sections["CEL"].cels[17][y][x]
+	# Use list comprehension for efficient row-by-row copy instead of nested loops
+	D.dlc_sections["CEL"].cels[1] = [row[:] for row in D.dlc_sections["CEL"].cels[17]]
 
 	#Get rid of all other cels.
 	D.dlc_sections["CEL"].cels = D.dlc_sections["CEL"].cels[:2] + left_cels + right_cels
@@ -68,10 +66,9 @@ def make_hacked_inverting(dlc_in="./dlc/dlc2/tu003410.dlc", left_gif="./images/d
 	#Overwrite palettes with our new palettes.
 	victim_palette_L = 4 # chilli palette
 	victim_palette_R = 5 # flame palette
-	for i in range(len(D.dlc_sections["PAL"].palettes[victim_palette_L])):
-		D.dlc_sections["PAL"].palettes[victim_palette_L][i] = left_palette[i]
-	for i in range(len(D.dlc_sections["PAL"].palettes[victim_palette_R])):
-		D.dlc_sections["PAL"].palettes[victim_palette_R][i] = right_palette[i]
+	# Replace palettes in-place instead of element-by-element assignment
+	D.dlc_sections["PAL"].palettes[victim_palette_L] = left_palette[:]
+	D.dlc_sections["PAL"].palettes[victim_palette_R] = right_palette[:]
 
 	#Get existing palette offsets.
 	existing_palettes = set()

@@ -171,6 +171,54 @@ D.dlc_sections["AMF"].minify_audio()
 D.build("/tmp/minified_dlc.dlc")
 ```
 
+## Musical Scales
+
+This repository includes tools for generating musical scales that can be played by Furby Connect!
+
+### Generating a C Major Scale
+
+Use the included `scale_generator.py` module to create audio files for a C major scale:
+
+```python
+from scale_generator import ScaleGenerator
+
+generator = ScaleGenerator()
+generator.generate_c_major_scale(output_dir='./scale_audio')
+```
+
+This generates 8 WAV files (one for each note: C, D, E, F, G, A, B, C) at 16kHz, which is the sample rate used by Furby Connect.
+
+### Playing the Scale on Furby
+
+After converting the WAV files to a18 format (see audioutils/README.md), you can add them to a DLC:
+
+```python
+from furby import dlc
+from scale_generator import play_c_major_scale_with_dlc
+
+D = dlc("./dlc/dlc2/tu003410.dlc")
+
+scale_files = [
+    "./scale_audio/note_c.a18",
+    "./scale_audio/note_d.a18",
+    "./scale_audio/note_e.a18",
+    "./scale_audio/note_f.a18",
+    "./scale_audio/note_g.a18",
+    "./scale_audio/note_a.a18",
+    "./scale_audio/note_b.a18",
+    "./scale_audio/note_c5.a18",
+]
+
+# Replace audio for action code 75-0-0-0 with the scale
+play_c_major_scale_with_dlc(D, (75, 0, 0, 0), scale_files)
+D.build("./furby_scale.dlc")
+```
+
+For a complete example, run:
+```
+python play_scale_demo.py
+```
+
 
 ## Contributing
 

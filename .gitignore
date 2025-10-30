@@ -2,3 +2,5 @@ test_dlc.py
 dlc
 *.pyc
 bluefluff
+scale_audio/
+furby_scale.dlc

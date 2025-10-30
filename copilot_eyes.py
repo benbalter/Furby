@@ -21,7 +21,8 @@ from furby import dlc
 def make_copilot_eyes(dlc_in="./dlc/dlc2/tu003410.dlc", 
                       left_gif="./images/copilot_eyes/left.gif", 
                       right_gif="./images/copilot_eyes/right.gif", 
-                      dlc_out="./copilot_furby.dlc"):
+                      dlc_out="./copilot_furby.dlc",
+                      animated=True):
     """
     Create a custom Furby DLC with Copilot logo on the eyes.
     
@@ -30,28 +31,56 @@ def make_copilot_eyes(dlc_in="./dlc/dlc2/tu003410.dlc",
         left_gif: Path to the left eye GIF image (128x128, 64-color palette)
         right_gif: Path to the right eye GIF image (128x128, 64-color palette)
         dlc_out: Path to the output DLC file
+        animated: If True, use multiple frames for animation (requires _0.gif, _1.gif etc.)
     """
 
     # Open the DLC and shrink audio to reduce file size
     D = dlc(dlc_in)
     D.dlc_sections["AMF"].minify_audio()
 
-    # Extract palettes from the GIF files
-    left_palette = D.dlc_sections["PAL"].extract_palette(left_gif)
-    right_palette = D.dlc_sections["PAL"].extract_palette(right_gif)
+    # For animated eyes, we'll use multiple frame GIFs
+    if animated:
+        # Load frame 0 and frame 1 for animation
+        left_gif_frame0 = left_gif.replace('.gif', '_0.gif')
+        left_gif_frame1 = left_gif.replace('.gif', '_1.gif')
+        right_gif_frame0 = right_gif.replace('.gif', '_0.gif')
+        right_gif_frame1 = right_gif.replace('.gif', '_1.gif')
+        
+        # Extract palettes (use frame 0 palette for both)
+        left_palette = D.dlc_sections["PAL"].extract_palette(left_gif_frame0)
+        right_palette = D.dlc_sections["PAL"].extract_palette(right_gif_frame0)
 
-    # Quarterize the GIF files (convert 128x128 to four 64x64 quarters)
-    left_cels = D.dlc_sections["CEL"].quarterize(left_gif)
-    right_cels = D.dlc_sections["CEL"].quarterize(right_gif)
+        # Quarterize both frames for left eye
+        left_cels_frame0 = D.dlc_sections["CEL"].quarterize(left_gif_frame0)
+        left_cels_frame1 = D.dlc_sections["CEL"].quarterize(left_gif_frame1)
+        
+        # Quarterize both frames for right eye
+        right_cels_frame0 = D.dlc_sections["CEL"].quarterize(right_gif_frame0)
+        right_cels_frame1 = D.dlc_sections["CEL"].quarterize(right_gif_frame1)
+        
+        # Combine all cels
+        all_left_cels = left_cels_frame0 + left_cels_frame1
+        all_right_cels = right_cels_frame0 + right_cels_frame1
+    else:
+        # Extract palettes from the GIF files
+        left_palette = D.dlc_sections["PAL"].extract_palette(left_gif)
+        right_palette = D.dlc_sections["PAL"].extract_palette(right_gif)
+
+        # Quarterize the GIF files (convert 128x128 to four 64x64 quarters)
+        left_cels = D.dlc_sections["CEL"].quarterize(left_gif)
+        right_cels = D.dlc_sections["CEL"].quarterize(right_gif)
+        
+        all_left_cels = left_cels
+        all_right_cels = right_cels
 
     # Keep transparent cel at index 0
-    # Move blank cell to cel 1 (currently at index 17)
+    # Move blank cel to cel 1 (currently at index 17)
     for y in range(64):
         for x in range(64):
             D.dlc_sections["CEL"].cels[1][y][x] = D.dlc_sections["CEL"].cels[17][y][x]
 
     # Replace cels with our Copilot logo cels
-    D.dlc_sections["CEL"].cels = D.dlc_sections["CEL"].cels[:2] + left_cels + right_cels
+    D.dlc_sections["CEL"].cels = D.dlc_sections["CEL"].cels[:2] + all_left_cels + all_right_cels
 
     # Replace palettes with our new palettes
     victim_palette_L = 4  # chilli palette - used for left eye
@@ -116,7 +145,7 @@ def make_copilot_eyes(dlc_in="./dlc/dlc2/tu003410.dlc",
             D.dlc_sections["SPR"].frames[f][7] = eye_palette
 
     # Replace left-eye flame frames with left Copilot logo
-    # First frame (quarters 2, 3, 4, 5)
+    # First frame (quarters 2, 3, 4, 5) - frame 0 of animation
     for f in D.dlc_sections["SPR"].frame_playlists[13]["frame_indices"][:10] + D.dlc_sections["SPR"].frame_playlists[13]["frame_indices"][19:29]:
         D.dlc_sections["SPR"].frames[f][0] = 2
         D.dlc_sections["SPR"].frames[f][2] = 3
@@ -128,42 +157,73 @@ def make_copilot_eyes(dlc_in="./dlc/dlc2/tu003410.dlc",
         D.dlc_sections["SPR"].frames[f][5] = chilli_palette
         D.dlc_sections["SPR"].frames[f][7] = chilli_palette
 
-    # Second frame (quarters 6, 7, 8, 9) - same as first for static logo
-    for f in D.dlc_sections["SPR"].frame_playlists[13]["frame_indices"][10:19] + D.dlc_sections["SPR"].frame_playlists[13]["frame_indices"][29:38]:
-        D.dlc_sections["SPR"].frames[f][0] = 2
-        D.dlc_sections["SPR"].frames[f][2] = 3
-        D.dlc_sections["SPR"].frames[f][4] = 4
-        D.dlc_sections["SPR"].frames[f][6] = 5
+    # Second frame (quarters 6, 7, 8, 9) - frame 1 of animation for pulsing effect
+    if animated:
+        # Use frame 1 cels for animation
+        for f in D.dlc_sections["SPR"].frame_playlists[13]["frame_indices"][10:19] + D.dlc_sections["SPR"].frame_playlists[13]["frame_indices"][29:38]:
+            D.dlc_sections["SPR"].frames[f][0] = 6
+            D.dlc_sections["SPR"].frames[f][2] = 7
+            D.dlc_sections["SPR"].frames[f][4] = 8
+            D.dlc_sections["SPR"].frames[f][6] = 9
 
-        D.dlc_sections["SPR"].frames[f][1] = chilli_palette
-        D.dlc_sections["SPR"].frames[f][3] = chilli_palette
-        D.dlc_sections["SPR"].frames[f][5] = chilli_palette
-        D.dlc_sections["SPR"].frames[f][7] = chilli_palette
+            D.dlc_sections["SPR"].frames[f][1] = chilli_palette
+            D.dlc_sections["SPR"].frames[f][3] = chilli_palette
+            D.dlc_sections["SPR"].frames[f][5] = chilli_palette
+            D.dlc_sections["SPR"].frames[f][7] = chilli_palette
+    else:
+        # Static: use same frame
+        for f in D.dlc_sections["SPR"].frame_playlists[13]["frame_indices"][10:19] + D.dlc_sections["SPR"].frame_playlists[13]["frame_indices"][29:38]:
+            D.dlc_sections["SPR"].frames[f][0] = 2
+            D.dlc_sections["SPR"].frames[f][2] = 3
+            D.dlc_sections["SPR"].frames[f][4] = 4
+            D.dlc_sections["SPR"].frames[f][6] = 5
+
+            D.dlc_sections["SPR"].frames[f][1] = chilli_palette
+            D.dlc_sections["SPR"].frames[f][3] = chilli_palette
+            D.dlc_sections["SPR"].frames[f][5] = chilli_palette
+            D.dlc_sections["SPR"].frames[f][7] = chilli_palette
 
     # Replace right-eye flame frames with right Copilot logo
-    # First frame (quarters 10, 11, 12, 13)
+    # First frame (quarters 10, 11, 12, 13) - frame 0 of animation
+    # Note: For animated mode, right eye cels start at index 2 + 8 (left cels) = 10
+    right_cel_offset = 10 if animated else 6
+    
     for f in D.dlc_sections["SPR"].frame_playlists[12]["frame_indices"][:10] + D.dlc_sections["SPR"].frame_playlists[12]["frame_indices"][19:29]:
-        D.dlc_sections["SPR"].frames[f][0] = 6
-        D.dlc_sections["SPR"].frames[f][2] = 7
-        D.dlc_sections["SPR"].frames[f][4] = 8
-        D.dlc_sections["SPR"].frames[f][6] = 9
+        D.dlc_sections["SPR"].frames[f][0] = right_cel_offset
+        D.dlc_sections["SPR"].frames[f][2] = right_cel_offset + 1
+        D.dlc_sections["SPR"].frames[f][4] = right_cel_offset + 2
+        D.dlc_sections["SPR"].frames[f][6] = right_cel_offset + 3
 
         D.dlc_sections["SPR"].frames[f][1] = flame_palette
         D.dlc_sections["SPR"].frames[f][3] = flame_palette
         D.dlc_sections["SPR"].frames[f][5] = flame_palette
         D.dlc_sections["SPR"].frames[f][7] = flame_palette
         
-    # Second frame - same as first for static logo
-    for f in D.dlc_sections["SPR"].frame_playlists[12]["frame_indices"][10:19] + D.dlc_sections["SPR"].frame_playlists[12]["frame_indices"][29:38]:
-        D.dlc_sections["SPR"].frames[f][0] = 6
-        D.dlc_sections["SPR"].frames[f][2] = 7
-        D.dlc_sections["SPR"].frames[f][4] = 8
-        D.dlc_sections["SPR"].frames[f][6] = 9
+    # Second frame - frame 1 for animation or same frame for static
+    if animated:
+        # Use frame 1 cels for animation
+        for f in D.dlc_sections["SPR"].frame_playlists[12]["frame_indices"][10:19] + D.dlc_sections["SPR"].frame_playlists[12]["frame_indices"][29:38]:
+            D.dlc_sections["SPR"].frames[f][0] = right_cel_offset + 4
+            D.dlc_sections["SPR"].frames[f][2] = right_cel_offset + 5
+            D.dlc_sections["SPR"].frames[f][4] = right_cel_offset + 6
+            D.dlc_sections["SPR"].frames[f][6] = right_cel_offset + 7
 
-        D.dlc_sections["SPR"].frames[f][1] = flame_palette
-        D.dlc_sections["SPR"].frames[f][3] = flame_palette
-        D.dlc_sections["SPR"].frames[f][5] = flame_palette
-        D.dlc_sections["SPR"].frames[f][7] = flame_palette
+            D.dlc_sections["SPR"].frames[f][1] = flame_palette
+            D.dlc_sections["SPR"].frames[f][3] = flame_palette
+            D.dlc_sections["SPR"].frames[f][5] = flame_palette
+            D.dlc_sections["SPR"].frames[f][7] = flame_palette
+    else:
+        # Static: use same frame
+        for f in D.dlc_sections["SPR"].frame_playlists[12]["frame_indices"][10:19] + D.dlc_sections["SPR"].frame_playlists[12]["frame_indices"][29:38]:
+            D.dlc_sections["SPR"].frames[f][0] = right_cel_offset
+            D.dlc_sections["SPR"].frames[f][2] = right_cel_offset + 1
+            D.dlc_sections["SPR"].frames[f][4] = right_cel_offset + 2
+            D.dlc_sections["SPR"].frames[f][6] = right_cel_offset + 3
+
+            D.dlc_sections["SPR"].frames[f][1] = flame_palette
+            D.dlc_sections["SPR"].frames[f][3] = flame_palette
+            D.dlc_sections["SPR"].frames[f][5] = flame_palette
+            D.dlc_sections["SPR"].frames[f][7] = flame_palette
 
     # Build the new DLC file
     D.build(dlc_out)

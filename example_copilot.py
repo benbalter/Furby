@@ -6,8 +6,6 @@
 #  Example script showing how to use the Copilot eyes functionality
 #
 
-from furby import dlc
-
 # Example 1: Generate Copilot eyes DLC with default settings
 def example_basic():
     """
@@ -28,7 +26,7 @@ def example_custom_output():
     from copilot_eyes import make_copilot_eyes
     
     output_path = "./my_custom_furby.dlc"
-    print(f"Generating Copilot eyes DLC to {output_path}...")
+    print("Generating Copilot eyes DLC to {}...".format(output_path))
     make_copilot_eyes(dlc_out=output_path)
     print("Done!")
 
@@ -45,7 +43,7 @@ def example_custom_eyes():
     right_eye = "./my_right_eye.gif"
     output = "./my_furby.dlc"
     
-    print(f"Generating DLC with custom eyes...")
+    print("Generating DLC with custom eyes...")
     make_copilot_eyes(
         left_gif=left_eye,
         right_gif=right_eye,

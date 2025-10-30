@@ -174,19 +174,25 @@ D.build("/tmp/minified_dlc.dlc")
 
 ## GitHub Copilot Eyes
 
-Want to make the GitHub Copilot logo appear on your Furby's eyes? We've included a ready-to-use script for that!
+Want to make the GitHub Copilot logo appear on your Furby's eyes with animated pulsing effect? We've included a ready-to-use script for that!
 
 <p align="center">
 	<img src="images/copilot_eyes/preview.png" width="600">
 </p>
 
-The `copilot_eyes.py` script creates a custom DLC that displays the GitHub Copilot logo on Furby's eyes:
+The `copilot_eyes.py` script creates a custom DLC that displays the GitHub Copilot logo on Furby's eyes with a subtle breathing animation:
 
 ```bash
 python copilot_eyes.py
 ```
 
-This will generate a `copilot_furby.dlc` file that you can upload to your Furby Connect. The script uses custom eye images located in `images/copilot_eyes/` and follows the same pattern as the demo script.
+This will generate a `copilot_furby.dlc` file that you can upload to your Furby Connect. The script uses custom eye images with cyan/blue gradient colors matching GitHub Copilot's branding, featuring a hexagonal design and animated pulsing effect.
+
+**Features:**
+- Animated pulsing effect with 4 frames
+- Cyan/blue gradient matching Copilot branding
+- Hexagonal logo design
+- Glowing luminous appearance
 
 You can customize the eye images or create your own by replacing the GIF files in the `images/copilot_eyes/` directory. Just make sure they are 128x128 pixels with a 64-color palette.
 

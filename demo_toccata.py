@@ -30,15 +30,22 @@ the famous Toccata and Fugue in D Minor. The haunting organ piece is
 perfect for giving your Furby a dramatic, theatrical personality.
 
 REQUIREMENTS:
+    - Python 2.7 (this codebase uses Python 2 syntax)
     - A Furby Connect DLC file (e.g., ./dlc/dlc2/tu003410.dlc)
     - Toccata audio file in .a18 format (see audio/new_audio/README.md for conversion instructions)
-    - Python with Pillow library installed
+    - Pillow library installed (pip install Pillow)
 
 USAGE:
+    python2 demo_toccata.py
+    
+    OR if Python 2 is your default:
     python demo_toccata.py
 
 The script will create a new DLC file (toccata_furby.dlc) that can be 
 uploaded to your Furby Connect.
+
+NOTE: If you get syntax errors about 'print' statements, you are running 
+Python 3. This project requires Python 2.7.
 """
 
 from furby import dlc

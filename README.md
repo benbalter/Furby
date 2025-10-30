@@ -7,6 +7,8 @@
 
 **Disclaimer: This script is pretty alpha; use at your own risk. Bad DLCs can make your Furby Connect very unhappy.**
 
+**Python Version: This project requires Python 2.7** as it uses Python 2 syntax. If you encounter syntax errors about `print` statements, ensure you're running Python 2.7.
+
 ### The original blog post can be found [here](https://www.contextis.com/blog/dont-feed-them-after-midnight-reverse-engineering-the-furby-connect)
 
 

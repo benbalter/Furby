@@ -172,6 +172,21 @@ D.build("/tmp/minified_dlc.dlc")
 ```
 
 
+## GitHub Copilot Eyes
+
+Want to make the GitHub Copilot logo appear on your Furby's eyes? We've included a ready-to-use script for that!
+
+The `copilot_eyes.py` script creates a custom DLC that displays the GitHub Copilot logo on Furby's eyes:
+
+```bash
+python copilot_eyes.py
+```
+
+This will generate a `copilot_furby.dlc` file that you can upload to your Furby Connect. The script uses custom eye images located in `images/copilot_eyes/` and follows the same pattern as the demo script.
+
+You can customize the eye images or create your own by replacing the GIF files in the `images/copilot_eyes/` directory. Just make sure they are 128x128 pixels with a 64-color palette.
+
+
 ## Contributing
 
 We really hope you enjoy tinkering with the scripts. If you'd like to contribute, here are a few things that still need work:

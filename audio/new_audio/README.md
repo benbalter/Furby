@@ -27,17 +27,56 @@ To convert a WAV file to .a18 format, you'll need:
    - Sample rate: 16000 Hz (16 kHz)
    - Mono channel (not stereo)
 
-2. **GeneralPlus Gadget Utility**: 
-   - Download from [GeneralPlus website](http://www.generalplus.com/)
-   - Extract the `a1800.dll` file from the utility
+2. **Choose your conversion method based on your OS:**
 
-3. **Use the conversion script**:
+#### Windows
+
+1. Download the [GeneralPlus Gadget utility](http://www.generalplus.com/)
+2. Extract the `a1800.dll` file from the utility
+3. Use the conversion script:
    ```bash
-   # On Windows with a1800.dll available:
    python ../audioutils/convert.py
    ```
-   
    Note: You'll need to modify the script to point to your specific WAV file
+
+#### Mac/Linux
+
+We provide a conversion script that uses Wine to run the Windows DLL:
+
+1. **Install dependencies:**
+   ```bash
+   # Mac (using Homebrew)
+   brew install wine-stable ffmpeg
+   
+   # Ubuntu/Debian
+   sudo apt-get install wine ffmpeg
+   
+   # Fedora/RHEL
+   sudo yum install wine ffmpeg
+   ```
+
+2. **Get the a1800.dll:**
+   - Download [GeneralPlus Gadget utility](http://www.generalplus.com/) (Windows version)
+   - Extract `a1800.dll` from the archive
+   - Place it in the `audioutils` directory
+
+3. **Convert your audio:**
+   ```bash
+   cd audioutils
+   python convert_mac_linux.py /path/to/toccata.mp3 ../audio/new_audio/toccata_in_d_minor.a18 a1800.dll
+   ```
+   
+   The script will:
+   - Convert your audio to the correct format (16kHz mono WAV)
+   - Use Wine to run the Windows DLL for .a18 encoding
+   - Output the .a18 file ready for use
+
+**Alternative for Mac/Linux (without Wine):**
+
+If you can't get Wine working, you can:
+1. Use an existing .a18 file from the `audio/new_audio/` directory as a template
+2. Or run the conversion on a Windows machine/VM
+3. Or ask someone with Windows to convert the file for you
 
 ### Option 3: Use Multiple Segments
 

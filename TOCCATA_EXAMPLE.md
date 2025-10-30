@@ -77,8 +77,21 @@ This will play all three segments in sequence when the action is triggered.
 ### Getting Toccata Audio:
 1. Find a public domain recording of Toccata and Fugue in D Minor (BWV 565)
 2. Edit to desired length (15-30 seconds recommended)
-3. Convert to WAV: 16kHz sample rate, mono channel
-4. Convert WAV to .a18 format using GeneralPlus tools (see `audio/new_audio/README.md`)
+3. Convert to .a18 format:
+   - **Windows**: Use `audioutils/convert.py` with a1800.dll
+   - **Mac/Linux**: Use `audioutils/convert_mac_linux.py` (requires Wine and FFmpeg)
+   - See `audio/new_audio/README.md` for detailed instructions
+
+### Mac/Linux Quick Start:
+```bash
+# Install dependencies
+brew install wine-stable ffmpeg  # Mac
+# or: sudo apt-get install wine ffmpeg  # Linux
+
+# Convert audio
+cd audioutils
+python convert_mac_linux.py toccata.mp3 ../audio/new_audio/toccata_in_d_minor.a18 a1800.dll
+```
 
 ### Recommended Sections:
 - **Opening**: 0:00-0:15 - The iconic dramatic opening

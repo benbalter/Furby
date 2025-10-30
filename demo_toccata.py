@@ -70,7 +70,7 @@ def make_toccata_furby(dlc_in="./dlc/dlc2/tu003410.dlc",
         None
         
     Raises:
-        FileNotFoundError: If the input DLC or audio file doesn't exist
+        OSError: If the input DLC file doesn't exist
     """
     
     # Check if files exist

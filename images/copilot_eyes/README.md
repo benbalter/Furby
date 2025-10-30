@@ -1,13 +1,13 @@
 # GitHub Copilot Eyes for Furby Connect
 
-This directory contains custom eye images designed to display the GitHub Copilot logo on Furby's eyes with animated pulsing effect, based on the official Copilot logo design.
+This directory contains custom eye images displaying the actual GitHub Copilot logo character/mascot on Furby's eyes with animated pulsing effect.
 
 ![Copilot Eyes Preview](preview.png)
 
 ## Files
 
-- `left.gif` - Left eye image with Copilot logo (128x128, 64-color palette)
-- `right.gif` - Right eye image with Copilot logo (128x128, 64-color palette)
+- `left.gif` - Left eye image with Copilot logo character (128x128, 64-color palette)
+- `right.gif` - Right eye image with Copilot logo character (128x128, 64-color palette)
 - `left_0.gif` through `left_3.gif` - Animation frames for left eye
 - `right_0.gif` through `right_3.gif` - Animation frames for right eye
 - `preview.png` - Preview image showing both eyes
@@ -15,15 +15,15 @@ This directory contains custom eye images designed to display the GitHub Copilot
 
 ## Features
 
-- **Goggle/lens design**: Rounded square lenses matching the official Copilot logo
-- **Animated pulsing effect**: Subtle breathing/glowing animation with 4 frames
-- **Cyan/blue gradient**: Matches GitHub Copilot's brand colors
-- **White frame**: Goggle frame with reflections and highlights
-- **Depth effects**: Gradient shading and purple tints for 3D appearance
+- **Complete Copilot logo character**: Full mascot/character head design
+- **Character elements**: Head, goggles with blue lenses, headphones
+- **Color scheme**: Cyan head, blue lenses, green/cyan accents
+- **Animated pulsing effect**: Subtle glowing animation with 4 frames
+- **Official branding**: Based on the GitHub Copilot logo character
 
 ## Usage
 
-To create a custom DLC with the animated Copilot logo on Furby's eyes:
+To create a custom DLC with the animated Copilot logo character on Furby's eyes:
 
 ```bash
 python copilot_eyes.py
@@ -46,8 +46,8 @@ The eye images follow the Furby Connect DLC specifications:
 - **Size**: 128x128 pixels
 - **Format**: GIF with indexed color palette
 - **Colors**: 64 colors in the palette
-- **Design**: Rounded square goggle/lens design based on official GitHub Copilot logo
-- **Colors**: Cyan/blue gradient with white frame elements
+- **Design**: Complete GitHub Copilot logo character/mascot
+- **Elements**: Character head, goggles, lenses, headphones
 - **Animation**: 4 frames with subtle pulsing and glow effects
 
 ## Customization

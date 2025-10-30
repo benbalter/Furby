@@ -2,10 +2,13 @@
 
 This directory contains custom eye images designed to display the GitHub Copilot logo on Furby's eyes.
 
+![Copilot Eyes Preview](preview.png)
+
 ## Files
 
 - `left.gif` - Left eye image with Copilot logo (128x128, 64-color palette)
 - `right.gif` - Right eye image with Copilot logo (128x128, 64-color palette)
+- `preview.png` - Preview image showing both eyes
 
 ## Usage
 
@@ -16,6 +19,8 @@ python copilot_eyes.py
 ```
 
 This will generate a `copilot_furby.dlc` file that can be uploaded to your Furby Connect.
+
+**Note**: This repository was originally written for Python 2. If you encounter compatibility issues with Python 3, you may need to use Python 2 or apply Python 2to3 conversion to the `furby.py` file.
 
 ## Image Specifications
 

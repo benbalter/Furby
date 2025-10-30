@@ -9,6 +9,29 @@
 
 ### The original blog post can be found [here](https://www.contextis.com/blog/dont-feed-them-after-midnight-reverse-engineering-the-furby-connect)
 
+## Requirements
+
+This project requires Python 3.8 or later. Install dependencies with:
+
+```bash
+pip install -r requirements.txt
+```
+
+## Testing
+
+Run the test suite to verify the installation:
+
+```bash
+python -m unittest test_furby -v
+```
+
+The test suite includes:
+- DLC file loading and parsing tests
+- DLC file building and roundtrip tests
+- Python 3 compatibility tests (bytes handling, integer division)
+- Section access and manipulation tests
+- Error handling tests
+
 
 ## DLC Class
 

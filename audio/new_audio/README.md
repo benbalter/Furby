@@ -1,0 +1,85 @@
+# Furby Audio Files
+
+This directory contains audio files in the GeneralPlus .a18 format for use with Furby Connect DLC files.
+
+## Existing Audio Files
+
+- **imperial_march-16000_wav.a18** - The Imperial March from Star Wars
+- **darkside_wav.a18** - Dark Side themed audio
+
+## Adding Toccata in D Minor
+
+To add Bach's Toccata and Fugue in D Minor to your Furby, you'll need to prepare the audio file in .a18 format.
+
+### Option 1: Find an Existing .a18 File
+
+If you can find a pre-converted .a18 file of Toccata in D Minor (16kHz sample rate), simply place it in this directory with the filename:
+```
+toccata_in_d_minor.a18
+```
+
+### Option 2: Convert from WAV
+
+To convert a WAV file to .a18 format, you'll need:
+
+1. **Source Audio**: Obtain a recording of Toccata and Fugue in D Minor by J.S. Bach in WAV format
+   - Recommended: Keep it under 30 seconds for Furby compatibility
+   - Sample rate: 16000 Hz (16 kHz)
+   - Mono channel (not stereo)
+
+2. **GeneralPlus Gadget Utility**: 
+   - Download from [GeneralPlus website](http://www.generalplus.com/)
+   - Extract the `a1800.dll` file from the utility
+
+3. **Use the conversion script**:
+   ```bash
+   # On Windows with a1800.dll available:
+   python ../audioutils/convert.py
+   ```
+   
+   Note: You'll need to modify the script to point to your specific WAV file
+
+### Option 3: Use Multiple Segments
+
+For a more dramatic effect, you can split Toccata into multiple segments:
+
+- `toccata_intro.a18` - The iconic opening notes
+- `toccata_main.a18` - The main theme
+- `toccata_climax.a18` - The dramatic conclusion
+
+Then use the `create_multi_track_toccata()` function in `demo_toccata.py`.
+
+## Audio Format Specifications
+
+GeneralPlus .a18 files for Furby Connect should have:
+- **Sample Rate**: 16000 Hz (16 kHz)
+- **Channels**: Mono
+- **Format**: GeneralPlus SP codec
+- **File Structure**: 
+  - Optional header: `\x00\xff\x00\xffGENERALPLUS SP\x00\x00` (at offset 0x00)
+  - Length field: 4-byte little-endian integer (at offset 0x30 if header present, else 0x00)
+  - Audio data: GeneralPlus compressed audio
+
+## Tips for Audio Preparation
+
+1. **Keep it short**: Furby has limited memory. Aim for 15-30 second clips.
+2. **Test incrementally**: Start with a single track before creating complex multi-track DLCs.
+3. **Use minify_audio()**: The demo scripts include this function to shrink audio for faster testing.
+4. **Backup original DLCs**: Always keep a backup before uploading custom DLCs to your Furby.
+
+## Example Usage
+
+Once you have `toccata_in_d_minor.a18` in this directory, run:
+
+```bash
+python demo_toccata.py
+```
+
+This will create `toccata_furby.dlc` which you can upload to your Furby Connect.
+
+## Need Help?
+
+For more information on Furby Connect DLC structure and audio handling, see:
+- Main project README.md
+- [Context IS Blog Post](https://www.contextis.com/blog/dont-feed-them-after-midnight-reverse-engineering-the-furby-connect)
+- The audioutils directory for conversion scripts

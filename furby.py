@@ -210,7 +210,7 @@ class dlc(object):
 					
 					# Build section name with null bytes between characters
 					sec_bytes = sec.encode('utf-8') if isinstance(sec, str) else sec
-					sec_with_nulls = b"\x00".join(bytes([c]) for c in sec_bytes)
+					sec_with_nulls = b"\x00".join(sec_bytes[i:i+1] for i in range(len(sec_bytes)))
 					self.__write__((self.default_prefix) + sec_with_nulls + (b"\x00" * 3))
 					self.__pack__(weird_counter, num_bytes=4)
 					self.__pack__(self.registered_fields[sec], num_bytes=4)
@@ -363,9 +363,10 @@ class dlc(object):
 			c_max = 248
 			a_transparent = 0x00
 			a_opaque = 0xff
+			palette_gradient_steps = 62
 
 			new_palette = [(c_max,c_max,c_max,a_transparent)]
-			new_palette += reversed([(i,i,i,a_opaque) for i in range(0, c_max, c_max//62)][:62] + [(c_max,c_max,c_max,a_opaque)])
+			new_palette += reversed([(i,i,i,a_opaque) for i in range(0, c_max, c_max//palette_gradient_steps)][:palette_gradient_steps] + [(c_max,c_max,c_max,a_opaque)])
 			return new_palette
 
 	#Passes tests;
@@ -826,12 +827,15 @@ class dlc(object):
 								rawbytes = self.__read__(10)
 								unboxing = struct.unpack("<HHHHH", rawbytes)
 								
+								# Handle bytes vs string for Python 2/3 compatibility
+								is_bytes = isinstance(rawbytes, bytes)
+								
 								self.action_tree[i][j][k][l] = {
 									"address"	:	laddress,
 									"rawbytes"	:	rawbytes,
-									"bytes"		:	[hex(b if isinstance(b, int) else ord(b)) for b in rawbytes],
+									"bytes"		:	[hex(b) for b in rawbytes] if is_bytes else [hex(ord(b)) for b in rawbytes],
 									"vals"		:	unboxing,
-									"seq"		:	rawbytes[0] if isinstance(rawbytes[0], int) else ord(rawbytes[0])
+									"seq"		:	rawbytes[0] if is_bytes else ord(rawbytes[0])
 								}
 
 		def __compile__(self):

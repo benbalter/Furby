@@ -75,10 +75,10 @@ def make_toccata_furby(dlc_in="./dlc/dlc2/tu003410.dlc",
     
     # Check if files exist
     if not os.path.exists(dlc_in):
-        raise FileNotFoundError(f"Input DLC file not found: {dlc_in}")
+        raise IOError("Input DLC file not found: %s" % dlc_in)
     
     if not os.path.exists(toccata_audio):
-        print(f"WARNING: Toccata audio file not found: {toccata_audio}")
+        print("WARNING: Toccata audio file not found: %s" % toccata_audio)
         print("Please prepare a Toccata in D Minor audio file in .a18 format.")
         print("See audio/new_audio/README.md for instructions on audio conversion.")
         return
@@ -96,28 +96,28 @@ def make_toccata_furby(dlc_in="./dlc/dlc2/tu003410.dlc",
     try:
         D.replace_audio((75, 0, 0, 0), [toccata_audio])
     except Exception as e:
-        print(f"Error replacing audio for action code 75-0-0-0: {e}")
+        print("Error replacing audio for action code 75-0-0-0: %s" % e)
     
     # Replace audio for action code 75-0-0-1 (alternative button press)
     print("Replacing audio for action code 75-0-0-1 with Toccata...")
     try:
         D.replace_audio((75, 0, 0, 1), [toccata_audio])
     except Exception as e:
-        print(f"Error replacing audio for action code 75-0-0-1: {e}")
+        print("Error replacing audio for action code 75-0-0-1: %s" % e)
     
     # Replace audio for action code 75-0-0-3 (another common action)
     print("Replacing audio for action code 75-0-0-3 with Toccata...")
     try:
         D.replace_audio((75, 0, 0, 3), [toccata_audio])
     except Exception as e:
-        print(f"Error replacing audio for action code 75-0-0-3: {e}")
+        print("Error replacing audio for action code 75-0-0-3: %s" % e)
     
     # Build the new DLC file
-    print(f"Building new DLC file: {dlc_out}")
+    print("Building new DLC file: %s" % dlc_out)
     D.build(dlc_out)
     
     print("Done! Your Toccata-enabled Furby DLC is ready.")
-    print(f"Upload {dlc_out} to your Furby Connect to hear it play Toccata in D Minor!")
+    print("Upload %s to your Furby Connect to hear it play Toccata in D Minor!" % dlc_out)
     print("\nNOTE: Be careful when uploading custom DLCs - bad DLCs can make your Furby unhappy.")
 
 
@@ -145,13 +145,13 @@ def create_multi_track_toccata(dlc_in="./dlc/dlc2/tu003410.dlc",
     
     # Check if files exist
     if not os.path.exists(dlc_in):
-        raise FileNotFoundError(f"Input DLC file not found: {dlc_in}")
+        raise IOError("Input DLC file not found: %s" % dlc_in)
     
     audio_files = [toccata_intro, toccata_main, toccata_climax]
     missing_files = [f for f in audio_files if not os.path.exists(f)]
     
     if missing_files:
-        print(f"WARNING: Audio files not found: {missing_files}")
+        print("WARNING: Audio files not found: %s" % missing_files)
         print("Please prepare Toccata audio segments in .a18 format.")
         print("See audio/new_audio/README.md for instructions.")
         return
@@ -167,10 +167,10 @@ def create_multi_track_toccata(dlc_in="./dlc/dlc2/tu003410.dlc",
     try:
         D.replace_audio((75, 0, 0, 0), [toccata_intro, toccata_main, toccata_climax])
     except Exception as e:
-        print(f"Error: {e}")
+        print("Error: %s" % e)
     
     # Build the new DLC file
-    print(f"Building new DLC file: {dlc_out}")
+    print("Building new DLC file: %s" % dlc_out)
     D.build(dlc_out)
     
     print("Done! Your multi-track Toccata Furby DLC is ready.")

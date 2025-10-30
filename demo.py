@@ -66,9 +66,9 @@ def make_hacked_inverting(dlc_in="./dlc/dlc2/tu003410.dlc", left_gif="./images/d
 	#Overwrite palettes with our new palettes.
 	victim_palette_L = 4 # chilli palette
 	victim_palette_R = 5 # flame palette
-	# Replace palettes in-place instead of element-by-element assignment
-	D.dlc_sections["PAL"].palettes[victim_palette_L] = left_palette[:]
-	D.dlc_sections["PAL"].palettes[victim_palette_R] = right_palette[:]
+	# Direct assignment since palettes are only used once
+	D.dlc_sections["PAL"].palettes[victim_palette_L] = left_palette
+	D.dlc_sections["PAL"].palettes[victim_palette_R] = right_palette
 
 	#Get existing palette offsets.
 	existing_palettes = set()

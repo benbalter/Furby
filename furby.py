@@ -360,7 +360,7 @@ class dlc(object):
 			a_opaque = 0xff
 
 			new_palette = [(c_max,c_max,c_max,a_transparent)]
-			# Use list() or slice [::-1] for reversing instead of reversed() to avoid creating iterator
+			# Use [::-1] for reversing to create the reversed list directly
 			new_palette += ([(i,i,i,a_opaque) for i in range(0, c_max, c_max//62)][:62] + [(c_max,c_max,c_max,a_opaque)])[::-1]
 			return new_palette
 

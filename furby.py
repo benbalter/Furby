@@ -1339,53 +1339,58 @@ class dlc(object):
 
 		if filepath_in is not None:
 
+			# Read all file data first, then close the file before processing
 			with open(filepath_in, "rb") as f:
+				header_bytes = f.read(0x288)
+				file_content = f.read()  # Read remaining content
 
-				#Parse header.
-				self.dlc_header = self.HEADER_section(f.read(0x288))
+			# Parse header
+			self.dlc_header = self.HEADER_section(header_bytes)
 
-				#Map sections
-				section_map = self.dlc_header.map_dlc()
+			# Map sections
+			section_map = self.dlc_header.map_dlc()
 
-				filemap = { e[0] : {"l" : e[1], "o" : e[2]} for e in section_map}
+			filemap = { e[0] : {"l" : e[1], "o" : e[2]} for e in section_map}
+			
+			# Generate section objects
+			section_generators = {
+				"PAL"   	:	self.PAL_section,
+				"SPR"   	:	self.SPR_section,
+				"CEL"   	:	self.CEL_section,
+				"XLS"   	:	self.XLS_section,
+				"AMF"   	:	self.AMF_section,
+				"APL"   	:	self.APL_section,
+				"LPS"   	:	self.LPS_section,
+				"SEQ"   	:	self.SEQ_section,
+				"MTR"   	:	self.MTR_section,
+			}
+
+			for sec in filemap:
+
+				# Extract section data from file content (offset is relative to start of file after header)
+				offset = filemap[sec]["o"] - 0x288  # Adjust offset since we already read header
+				length = filemap[sec]["l"]
+				rawbytes = file_content[offset:offset+length]
+
+				d = section_generators[sec](rawbytes)
 				
-				#Generate section objects.
-				section_generators = {
-					"PAL"   	:	self.PAL_section,
-					"SPR"   	:	self.SPR_section,
-					"CEL"   	:	self.CEL_section,
-					"XLS"   	:	self.XLS_section,
-					"AMF"   	:	self.AMF_section,
-					"APL"   	:	self.APL_section,
-					"LPS"   	:	self.LPS_section,
-					"SEQ"   	:	self.SEQ_section,
-					"MTR"   	:	self.MTR_section,
-				}
+				self.dlc_sections[sec] = d
+				
+				if (self_test is not None):
 
-				for sec in filemap:
-
-					f.seek(filemap[sec]["o"])
-					rawbytes = f.read(filemap[sec]["l"])
-
-					d = section_generators[sec](rawbytes)
-					
-					self.dlc_sections[sec] = d
-					
-					if (self_test is not None):
-
-						print("testing %s at offset %d" % (sec, filemap[sec]["o"]))
-						newbytes = d.write_out()
-						try:
-							print(len(rawbytes) == len(newbytes))
-							assert(rawbytes == newbytes)
-						except:
-							i=0
-							for i in range(min(len(rawbytes), len(newbytes))):
-								if rawbytes[i] != newbytes[i]:
-									break
-							raise AssertionError("Test failed: error at offset 0x%x\n\texpected %02x, got %02x" % (i, rawbytes[i], newbytes[i]))
-						else:
-							print("\tTest Successful!")
+					print("testing %s at offset %d" % (sec, filemap[sec]["o"]))
+					newbytes = d.write_out()
+					try:
+						print(len(rawbytes) == len(newbytes))
+						assert(rawbytes == newbytes)
+					except:
+						i=0
+						for i in range(min(len(rawbytes), len(newbytes))):
+							if rawbytes[i] != newbytes[i]:
+								break
+						raise AssertionError("Test failed: error at offset 0x%x\n\texpected %02x, got %02x" % (i, rawbytes[i], newbytes[i]))
+					else:
+						print("\tTest Successful!")
 
 	#Builds a new DLC.
 	def build(self, filepath_in):

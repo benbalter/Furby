@@ -9,16 +9,22 @@ This directory contains audio files in the GeneralPlus .a18 format for use with 
 
 ## Adding Toccata in D Minor
 
+**NEW: A pre-prepared WAV file is now included!** See `TOCCATA_CONVERSION.md` for details on converting the included `toccata_in_d_minor_16khz.wav` file to .a18 format.
+
 To add Bach's Toccata and Fugue in D Minor to your Furby, you'll need to prepare the audio file in .a18 format.
 
-### Option 1: Find an Existing .a18 File
+### Option 1: Use the Included WAV File (Easiest!)
+
+This directory now includes `toccata_in_d_minor_16khz.wav` - a properly formatted WAV file extracted from the full Toccata recording. See `TOCCATA_CONVERSION.md` for conversion instructions.
+
+### Option 2: Find an Existing .a18 File
 
 If you can find a pre-converted .a18 file of Toccata in D Minor (16kHz sample rate), simply place it in this directory with the filename:
 ```
 toccata_in_d_minor.a18
 ```
 
-### Option 2: Convert from WAV
+### Option 3: Convert from WAV
 
 To convert a WAV file to .a18 format, you'll need:
 

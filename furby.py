@@ -331,7 +331,7 @@ class dlc(object):
 					ord(p[1][(4*i)+1]),
 					ord(p[1][(4*i)+2]),
 					0 if (ord(p[1][(4*i)+3]) == 0) else 0xff
-				) for i in range(len(p[1])/4)]
+				) for i in range(len(p[1])//4)]
 			else:
 				raise NotImplementedError("Unsure how to handle palettes of type %s" % p[0])
 

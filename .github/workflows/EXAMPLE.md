@@ -8,7 +8,7 @@ The workflow allows you to convert audio files (MP3 or WAV) to a18 format compat
 
 ## Prerequisites
 
-Before using the workflow, you need to configure the a1800.dll. See the [audioutils README](../audioutils/README.md) for details on the different configuration options.
+Before using the workflow, you need to configure the a1800.dll. See the [audioutils README](../../audioutils/README.md) for details on the different configuration options.
 
 ## Using the Workflow
 

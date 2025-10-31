@@ -116,15 +116,19 @@ python convert_mac_linux.py toccata.mp3 ../audio/new_audio/toccata_in_d_minor.a1
 - Use `python2` command instead of `python`
 
 ### Timeout or "undefined" errors during DLC flash
-- **Solution**: Disable audio minification in the demo script
-- The `minify_audio()` function shrinks existing audio for faster testing but can cause flash errors
-- By default, the demo script now keeps original audio intact
-- If you enabled minification: Run the script with `minify=False` parameter
+- **Fixed**: The `minify_audio()` function has been improved with safer defaults
+- The function now uses 16000 bytes (~1 second) minimum instead of 128 bytes
+- By default, the demo script keeps original audio intact (minify disabled)
+- If you need faster testing uploads, you can enable minification safely now:
 
 Example:
 ```python
 from demo_toccata import make_toccata_furby
-make_toccata_furby(minify=False)  # This is the default
+# Default: minify disabled, full audio preserved
+make_toccata_furby()
+
+# For faster testing: enable minify with safe defaults
+make_toccata_furby(minify=True)  # Now safe with 1-second minimum
 ```
 
 ### Furby doesn't play the audio
@@ -136,7 +140,7 @@ make_toccata_furby(minify=False)  # This is the default
 ### Audio sounds distorted
 - Ensure source audio was converted at 16kHz (not 44.1kHz or 48kHz)
 - Keep audio segments under 30 seconds
-- Don't use `minify_audio()` for production DLCs
+- The improved `minify_audio()` function now uses safer defaults (16000 bytes minimum)
 
 ## Why Toccata?
 

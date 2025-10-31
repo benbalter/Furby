@@ -1005,10 +1005,25 @@ class dlc(object):
 			self.remove_track(tracknumber)
 			self.add_track(trackpath, tracknumber)
 
-		def minify_audio(self, newlength_in=128):
-
+		def minify_audio(self, newlength_in=16000):
+			"""
+			Minify audio tracks to reduce DLC size for faster testing.
+			
+			Args:
+				newlength_in: Target audio length in bytes (default: 16000 = ~1 second at 16kHz)
+			
+			Note: The default of 16000 bytes (~1 second) is the minimum recommended
+			      to avoid flash errors. Values below 8000 bytes may cause issues.
+			"""
+			
 			#This always needs to be a multiple of 8.
 			audio_length = ((newlength_in  >> 3 ) << 3)
+			
+			# Ensure minimum safe length to avoid flash errors
+			if audio_length < 8000:
+				print "WARNING: Audio length %d is too small, using 8000 bytes minimum" % audio_length
+				audio_length = 8000
+			
 			sampling_length = 2
 			size_length = 4
 			
@@ -1016,8 +1031,16 @@ class dlc(object):
 			sample_rate = struct.pack("<H", self.samplerate)
 			
 			for i in range(len(self.tracks)):
+				# Check if track is long enough
+				track_data_length = len(self.tracks[i]) - 6  # Subtract header bytes
 				
-				newtrack = newlength_packed + sample_rate + self.tracks[i][6:6+audio_length]
+				if track_data_length >= audio_length:
+					# Truncate to new length
+					newtrack = newlength_packed + sample_rate + self.tracks[i][6:6+audio_length]
+				else:
+					# Track is shorter than target, keep original
+					newtrack = self.tracks[i]
+				
 				self.tracks[i] = newtrack
 
 	#Passes tests;

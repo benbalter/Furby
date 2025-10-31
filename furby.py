@@ -318,20 +318,26 @@ class dlc(object):
 			p = im.palette.getdata()
 
 			if (p[0] == "RGB"):
+				# Pre-calculate palette length to avoid repeated division
+				palette_data = p[1]
+				num_colors = len(palette_data) // 3
 				mypalette = [(
-					ord(p[1][(3*i)]),
-					ord(p[1][(3*i)+1]),
-					ord(p[1][(3*i)+2]),
+					ord(palette_data[(3*i)]),
+					ord(palette_data[(3*i)+1]),
+					ord(palette_data[(3*i)+2]),
 					0xff
-				) for i in range(len(p[1])//3)]
+				) for i in range(num_colors)]
 			
 			elif (p[0] == "RGBA"):
+				# Pre-calculate palette length to avoid repeated division
+				palette_data = p[1]
+				num_colors = len(palette_data) // 4
 				mypalette = [(
-					ord(p[1][(4*i)]),
-					ord(p[1][(4*i)+1]),
-					ord(p[1][(4*i)+2]),
-					0 if (ord(p[1][(4*i)+3]) == 0) else 0xff
-				) for i in range(len(p[1])//4)]
+					ord(palette_data[(4*i)]),
+					ord(palette_data[(4*i)+1]),
+					ord(palette_data[(4*i)+2]),
+					0 if (ord(palette_data[(4*i)+3]) == 0) else 0xff
+				) for i in range(num_colors)]
 			else:
 				raise NotImplementedError("Unsure how to handle palettes of type %s" % p[0])
 
@@ -358,7 +364,8 @@ class dlc(object):
 			a_opaque = 0xff
 
 			new_palette = [(c_max,c_max,c_max,a_transparent)]
-			new_palette += reversed([(i,i,i,a_opaque) for i in range(0, c_max, c_max//62)][:62] + [(c_max,c_max,c_max,a_opaque)])
+			# Reverse the entire combined list explicitly using list(reversed(...))
+			new_palette += list(reversed(([(i,i,i,a_opaque) for i in range(0, c_max, c_max//62)][:62] + [(c_max,c_max,c_max,a_opaque)])))
 			return new_palette
 
 	#Passes tests;
@@ -593,13 +600,14 @@ class dlc(object):
 
 			cel = self.cels[cel_number]
 
+			# Use putdata for batch pixel operations instead of putpixel in nested loops
+			pixel_data = []
 			for y in range(self.cel_height):
 				for x in range(self.cel_width):
-					
 					col = (cel[y][x]<<2,) * 3
-					
-					im.putpixel((x,y), col)
-
+					pixel_data.append(col)
+			
+			im.putdata(pixel_data)
 			im.save(filename_out)
 
 		def quarterize(self, filename_in, demo_palette=None):
@@ -618,23 +626,20 @@ class dlc(object):
 				assert(w == (2*self.cel_width))
 				assert(h == (2*self.cel_height))
 
+				# Use getdata for batch pixel access instead of getpixel in nested loops
+				pixel_data = list(im.getdata())
+				
 				im_quarters = [[], [], [], []]
-				im_x = [(0,w/2),(w/2,w),(0,w/2),(w/2,w)]
-				im_y = [(0,h/2),(0,h/2),(h/2,h),(h/2,h)]
-
+				im_x = [(0,w//2),(w//2,w),(0,w//2),(w//2,w)]
+				im_y = [(0,h//2),(0,h//2),(h//2,h),(h//2,h)]
 
 				for i in range(4):
-
 					for y in range(im_y[i][0],im_y[i][1]):
-
 						thisrow = []
-
 						for x in range(im_x[i][0],im_x[i][1]):
-
-							pix = im.getpixel((x,y))
-
+							# Calculate index in flat pixel_data array
+							pix = pixel_data[y * w + x]
 							thisrow.append(pix)
-
 						im_quarters[i].append(thisrow)
 
 				if demo_palette is not None:
@@ -660,14 +665,15 @@ class dlc(object):
 
 			im = PILImage.new("RGBA", (w,h))
 
+			# Use putdata for batch pixel operations instead of putpixel in nested loops
+			pixel_data = []
 			for y in range(h):
 				for x in range(w):
-
 					pix = im_in[y][x]
 					col = colourmap_in[pix]
-
-					im.putpixel((x,y), col)
-
+					pixel_data.append(col)
+			
+			im.putdata(pixel_data)
 			im.show()
 
 		def analyse_colours(self, cel_no):
@@ -834,11 +840,22 @@ class dlc(object):
 			self.__seek__(0)
 
 			#Work out the sizes of the type-1, -2, -3, and -4 sub-sections.
-			#(please forgive the horrible one-liners)
+			# Simplified from nested comprehensions for better readability and performance
 			type1_len = 6 * (1 + len(self.action_tree))
-			type2_len = sum([(6 * self.action_tree[i]["entries"]) for i in self.action_tree])
-			type3_len = sum([sum([20 * self.action_tree[i][j]["entries"] for j in range(self.action_tree[i]["entries"])]) for i in self.action_tree])
-			type4_len = sum([sum([sum([10 * self.action_tree[i][j][k]["entries"] for k in range(self.action_tree[i][j]["entries"])]) for j in range(self.action_tree[i]["entries"])]) for i in self.action_tree])
+			type2_len = sum(6 * self.action_tree[i]["entries"] for i in self.action_tree)
+			
+			# Calculate type3_len with clearer nested iteration
+			type3_len = 0
+			for i in self.action_tree:
+				for j in range(self.action_tree[i]["entries"]):
+					type3_len += 20 * self.action_tree[i][j]["entries"]
+			
+			# Calculate type4_len with clearer nested iteration
+			type4_len = 0
+			for i in self.action_tree:
+				for j in range(self.action_tree[i]["entries"]):
+					for k in range(self.action_tree[i][j]["entries"]):
+						type4_len += 10 * self.action_tree[i][j][k]["entries"]
 
 			#Prepopulate this section's content with zeroes (as we'll 
 			#be hopping around quite a bit.)
@@ -1448,14 +1465,15 @@ class dlc(object):
 		
 		im = PILImage.new("RGBA", (w, h))
 
+		# Use putdata for batch pixel operations instead of putpixel in nested loops
+		pixel_data = []
 		for y in range(h):
 			for x in range(w):
-				
 				col_index = target_cel[y][x]
-				
 				true_col = target_palette[col_index]
-
-				im.putpixel((x,y), true_col)
+				pixel_data.append(true_col)
+		
+		im.putdata(pixel_data)
 
 		#Use PNGs to preserve transparency.
 		im.save(outfile, format="PNG")

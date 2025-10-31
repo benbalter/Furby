@@ -194,6 +194,23 @@ D.dlc_sections["AMF"].minify_audio()
 D.build("/tmp/minified_dlc.dlc")
 ```
 
+### Minify DLC CLI Tool
+
+A command-line tool is available to minify DLC files without writing Python code:
+
+```bash
+# Minify a DLC file (output will be input_minified.dlc)
+python minify_dlc.py input.dlc
+
+# Specify output file
+python minify_dlc.py input.dlc -o output.dlc
+
+# Customize audio length (default 128 bytes, must be multiple of 8)
+python minify_dlc.py input.dlc -l 256
+```
+
+The tool will display the original and new file sizes, showing the reduction achieved.
+
 ## Audio Conversion
 
 A GitHub Actions workflow and command-line tool are available to convert audio files (MP3 or WAV) to the a18 format required by Furby Connect.

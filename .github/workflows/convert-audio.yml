@@ -1,0 +1,130 @@
+name: Convert Audio to a18
+
+on:
+  workflow_dispatch:
+    inputs:
+      audio_file_path:
+        description: 'Path to audio file in repository (MP3 or WAV)'
+        required: true
+        type: string
+      output_path:
+        description: 'Output path for a18 file (optional, defaults to input with .a18 extension)'
+        required: false
+        type: string
+      sample_rate:
+        description: 'Sample rate for conversion (default: 16000)'
+        required: false
+        type: string
+        default: '16000'
+
+jobs:
+  convert:
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+    
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pydub
+    
+    - name: Install ffmpeg (for MP3 support)
+      run: |
+        choco install ffmpeg -y
+    
+    - name: Download a1800.dll
+      shell: pwsh
+      run: |
+        # Note: The a1800.dll needs to be obtained from GeneralPlus Gadget utility
+        # For CI purposes, it should be stored as a GitHub secret or artifact
+        # This is a placeholder - you'll need to provide the DLL
+        
+        # Option 1: Store as base64 encoded secret and decode
+        $dllBase64 = "${{ secrets.A1800_DLL_BASE64 }}"
+        if ($dllBase64 -and $dllBase64.Length -gt 0) {
+          try {
+            $dllBytes = [System.Convert]::FromBase64String($dllBase64)
+            [System.IO.File]::WriteAllBytes("a1800.dll", $dllBytes)
+            Write-Host "Using a1800.dll from GitHub secret"
+          } catch {
+            Write-Host "::error::Failed to decode A1800_DLL_BASE64 secret. Ensure it contains valid base64 data."
+            exit 1
+          }
+        }
+        # Option 2: Download from a secure location (if permitted)
+        # Invoke-WebRequest -Uri "YOUR_SECURE_URL/a1800.dll" -OutFile "a1800.dll"
+        
+        # For now, check if DLL exists in repo (not recommended for licensing reasons)
+        elseif (Test-Path "audioutils/a1800.dll") {
+          Copy-Item "audioutils/a1800.dll" -Destination "a1800.dll"
+          Write-Host "Using a1800.dll from repository"
+        } else {
+          Write-Host "::error::a1800.dll not found. Please provide it via secrets or repository."
+          Write-Host "::error::Download from GeneralPlus Gadget utility and configure workflow."
+          exit 1
+        }
+    
+    - name: Verify input file exists
+      shell: pwsh
+      run: |
+        $inputFile = "${{ inputs.audio_file_path }}"
+        if (-not (Test-Path $inputFile)) {
+          Write-Host "::error::Input file not found: $inputFile"
+          exit 1
+        }
+        Write-Host "Input file found: $inputFile"
+    
+    - name: Convert audio to a18
+      shell: pwsh
+      run: |
+        $inputFile = "${{ inputs.audio_file_path }}"
+        $outputFile = "${{ inputs.output_path }}"
+        $sampleRate = "${{ inputs.sample_rate }}"
+        
+        # Build command
+        $cmd = "python audioutils/convert_to_a18.py `"$inputFile`""
+        
+        if ($outputFile) {
+          $cmd += " -o `"$outputFile`""
+        } else {
+          # Use default output path
+          $outputFile = [System.IO.Path]::ChangeExtension($inputFile, ".a18")
+        }
+        
+        if ($sampleRate -ne "16000") {
+          $cmd += " -s $sampleRate"
+        }
+        
+        Write-Host "Running: $cmd"
+        Invoke-Expression $cmd
+        
+        if ($LASTEXITCODE -ne 0) {
+          Write-Host "::error::Conversion failed"
+          exit 1
+        }
+        
+        # Output the result path for use in next steps
+        Write-Host "Output file: $outputFile"
+        echo "OUTPUT_FILE=$outputFile" >> $env:GITHUB_ENV
+    
+    - name: Upload a18 artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: converted-a18
+        path: ${{ env.OUTPUT_FILE }}
+        retention-days: 30
+    
+    - name: Display success message
+      run: |
+        echo "✅ Successfully converted audio to a18 format!"
+        echo "📦 The a18 file has been uploaded as an artifact."
+        echo "📁 Output file: ${{ env.OUTPUT_FILE }}"

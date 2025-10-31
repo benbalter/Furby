@@ -2,3 +2,4 @@ test_dlc.py
 dlc
 *.pyc
 bluefluff
+audio/new_audio/*.mp3

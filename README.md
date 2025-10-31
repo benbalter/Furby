@@ -7,6 +7,8 @@
 
 **Disclaimer: This script is pretty alpha; use at your own risk. Bad DLCs can make your Furby Connect very unhappy.**
 
+**Python Version: This project requires Python 2.7** as it uses Python 2 syntax. If you encounter syntax errors about `print` statements, ensure you're running Python 2.7.
+
 ### The original blog post can be found [here](https://www.contextis.com/blog/dont-feed-them-after-midnight-reverse-engineering-the-furby-connect)
 
 ## Requirements
@@ -193,6 +195,25 @@ D = dlc("./dlc/dlc1/tu012700.dlc")
 D.dlc_sections["AMF"].minify_audio()
 D.build("/tmp/minified_dlc.dlc")
 ```
+
+## Example: Making Furby Play Toccata in D Minor
+
+Want to give your Furby a dramatic, theatrical personality? Check out `demo_toccata.py` for a complete example of how to make your Furby play Bach's famous Toccata and Fugue in D Minor.
+
+```python
+from furby import dlc
+
+# Load an existing DLC
+D = dlc("./dlc/dlc2/tu003410.dlc")
+
+# Replace audio for a button press action with Toccata
+D.replace_audio((75,0,0,0), ["./audio/new_audio/toccata_in_d_minor.a18"])
+
+# Build the new DLC
+D.build("./toccata_furby.dlc")
+```
+
+For more details on preparing audio files and advanced multi-track configurations, see the `audio/new_audio/README.md` file and `demo_toccata.py` script.
 
 
 ## Contributing

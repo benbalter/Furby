@@ -4,11 +4,11 @@
 
 This directory contains a prepared audio file ready for conversion to .a18 format:
 
-- **`toccata_in_d_minor_16khz.wav`** - First 30 seconds of Toccata and Fugue in D Minor
+- **`toccata_in_d_minor_16khz.wav`** - First 20 seconds of Toccata and Fugue in D Minor
   - Format: 16-bit PCM WAV
   - Sample Rate: 16000 Hz (16 kHz)
   - Channels: Mono
-  - Duration: ~30 seconds
+  - Duration: ~20 seconds
   - Source: Public domain recording
 
 This file is properly formatted and ready to be converted to .a18 format.
@@ -68,6 +68,6 @@ This will create a Furby DLC file with Toccata and Fugue in D Minor!
 
 This excerpt includes the iconic opening of Bach's Toccata and Fugue in D Minor (BWV 565), featuring:
 - The famous dramatic opening chords (0-10 seconds)
-- The flowing toccata section (10-30 seconds)
+- The flowing toccata section (10-20 seconds)
 
 This is one of the most recognizable pieces of classical music and creates a perfect dramatic effect for your Furby!

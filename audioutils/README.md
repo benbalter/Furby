@@ -82,7 +82,10 @@ This workflow runs on a Windows runner and can convert MP3 or WAV files to a18 f
 The workflow requires the a1800.dll to function. You have several options:
 
 1. **Store as a GitHub secret** (recommended):
-   - Convert the DLL to base64: `certutil -encode a1800.dll a1800.dll.b64` (Windows) or `base64 a1800.dll > a1800.dll.b64` (Linux/Mac)
+   - Convert the DLL to base64:  
+     - **Windows (PowerShell):** `[Convert]::ToBase64String([IO.File]::ReadAllBytes('a1800.dll')) > a1800.dll.b64`  
+     - **Linux/Mac:** `base64 a1800.dll > a1800.dll.b64`
+     - **Note:** Do **not** use `certutil -encode` as it adds header/footer lines and line breaks that are not valid base64. If you must use `certutil`, remove the header/footer lines and join the output into a single line.
    - Create a repository secret named `A1800_DLL_BASE64` with the base64 content
    - Uncomment the secret decoding section in the workflow
 

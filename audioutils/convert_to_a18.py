@@ -88,8 +88,8 @@ def convert_wav_to_a18(wav_path, a18_path, encfunc, sample_rate=DEFAULT_SAMPLE_R
     """Convert WAV to a18 using the a1800.dll."""
     print(f"Converting {wav_path} to a18...")
     
-    wav_path_bytes = str(wav_path).encode('ascii')
-    a18_path_bytes = str(a18_path).encode('ascii')
+    wav_path_bytes = str(wav_path).encode('utf-8')
+    a18_path_bytes = str(a18_path).encode('utf-8')
     
     ret = encfunc(
         infile=LPCSTR(wav_path_bytes),

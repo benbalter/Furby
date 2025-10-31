@@ -194,6 +194,33 @@ D.dlc_sections["AMF"].minify_audio()
 D.build("/tmp/minified_dlc.dlc")
 ```
 
+## Audio Conversion
+
+A GitHub Actions workflow and command-line tool are available to convert audio files (MP3 or WAV) to the a18 format required by Furby Connect.
+
+### Using the CI Workflow
+
+1. Add your audio file (MP3 or WAV) to the repository
+2. Go to the "Actions" tab in GitHub
+3. Select "Convert Audio to a18" workflow
+4. Click "Run workflow" and specify your audio file path
+5. Download the converted a18 file from the workflow artifacts
+
+See [.github/workflows/EXAMPLE.md](.github/workflows/EXAMPLE.md) for detailed usage instructions.
+
+### Using the Command-Line Tool
+
+On Windows with the a1800.dll installed:
+
+```bash
+# Convert a WAV file
+python audioutils/convert_to_a18.py input.wav
+
+# Convert an MP3 file
+python audioutils/convert_to_a18.py input.mp3 -o output.a18
+```
+
+See [audioutils/README.md](audioutils/README.md) for more information.
 
 ## Contributing
 

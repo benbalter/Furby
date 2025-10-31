@@ -54,7 +54,8 @@ import os
 
 def make_toccata_furby(dlc_in="./dlc/dlc2/tu003410.dlc", 
                        toccata_audio="./audio/new_audio/toccata_in_d_minor.a18",
-                       dlc_out="./toccata_furby.dlc"):
+                       dlc_out="./toccata_furby.dlc",
+                       minify=False):
     """
     Create a Furby DLC that plays Toccata in D Minor.
     
@@ -65,6 +66,7 @@ def make_toccata_furby(dlc_in="./dlc/dlc2/tu003410.dlc",
         dlc_in: Path to the input DLC file
         toccata_audio: Path to the Toccata audio file in .a18 format
         dlc_out: Path for the output DLC file
+        minify: If True, shrink other audio tracks for faster testing (default: False)
         
     Returns:
         None
@@ -86,9 +88,12 @@ def make_toccata_furby(dlc_in="./dlc/dlc2/tu003410.dlc",
     print("Loading DLC file...")
     D = dlc(dlc_in)
     
-    # Optionally minify audio to speed up testing
-    print("Minifying existing audio tracks...")
-    D.dlc_sections["AMF"].minify_audio()
+    # Optionally minify audio to speed up testing (disabled by default)
+    if minify:
+        print("Minifying existing audio tracks for faster testing...")
+        D.dlc_sections["AMF"].minify_audio()
+    else:
+        print("Keeping original audio tracks intact...")
     
     # Replace audio for action code 75-0-0-0 (button press)
     # This is a common action code triggered by user interaction
@@ -125,7 +130,8 @@ def create_multi_track_toccata(dlc_in="./dlc/dlc2/tu003410.dlc",
                                  toccata_intro="./audio/new_audio/toccata_intro.a18",
                                  toccata_main="./audio/new_audio/toccata_main.a18", 
                                  toccata_climax="./audio/new_audio/toccata_climax.a18",
-                                 dlc_out="./toccata_furby_multi.dlc"):
+                                 dlc_out="./toccata_furby_multi.dlc",
+                                 minify=False):
     """
     Create a Furby DLC with multiple segments of Toccata in D Minor.
     
@@ -138,6 +144,7 @@ def create_multi_track_toccata(dlc_in="./dlc/dlc2/tu003410.dlc",
         toccata_main: Path to main section of Toccata (.a18 format)
         toccata_climax: Path to climax section of Toccata (.a18 format)
         dlc_out: Path for the output DLC file
+        minify: If True, shrink other audio tracks for faster testing (default: False)
         
     Returns:
         None
@@ -159,8 +166,12 @@ def create_multi_track_toccata(dlc_in="./dlc/dlc2/tu003410.dlc",
     print("Loading DLC file...")
     D = dlc(dlc_in)
     
-    print("Minifying existing audio tracks...")
-    D.dlc_sections["AMF"].minify_audio()
+    # Optionally minify audio to speed up testing (disabled by default)
+    if minify:
+        print("Minifying existing audio tracks for faster testing...")
+        D.dlc_sections["AMF"].minify_audio()
+    else:
+        print("Keeping original audio tracks intact...")
     
     # Replace with a sequence of Toccata segments
     print("Replacing audio for action code 75-0-0-0 with Toccata segments...")

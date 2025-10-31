@@ -115,15 +115,28 @@ python convert_mac_linux.py toccata.mp3 ../audio/new_audio/toccata_in_d_minor.a1
 - You're running Python 3. This project requires Python 2.7
 - Use `python2` command instead of `python`
 
+### Timeout or "undefined" errors during DLC flash
+- **Solution**: Disable audio minification in the demo script
+- The `minify_audio()` function shrinks existing audio for faster testing but can cause flash errors
+- By default, the demo script now keeps original audio intact
+- If you enabled minification: Run the script with `minify=False` parameter
+
+Example:
+```python
+from demo_toccata import make_toccata_furby
+make_toccata_furby(minify=False)  # This is the default
+```
+
 ### Furby doesn't play the audio
 - Verify the DLC was uploaded successfully
 - Try triggering different actions (button presses, tickles, etc.)
 - The action codes may vary between Furby firmware versions
+- Make sure you converted the WAV to .a18 format before building the DLC
 
 ### Audio sounds distorted
 - Ensure source audio was converted at 16kHz (not 44.1kHz or 48kHz)
 - Keep audio segments under 30 seconds
-- Use `minify_audio()` if testing multiple iterations
+- Don't use `minify_audio()` for production DLCs
 
 ## Why Toccata?
 

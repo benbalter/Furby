@@ -20,6 +20,8 @@ on:
 jobs:
   convert:
     runs-on: windows-latest
+    permissions:
+      contents: read
     
     steps:
     - name: Checkout repository

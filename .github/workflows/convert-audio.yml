@@ -47,17 +47,22 @@ jobs:
         # This is a placeholder - you'll need to provide the DLL
         
         # Option 1: Store as base64 encoded secret and decode
-        # $dllBase64 = "${{ secrets.A1800_DLL_BASE64 }}"
-        # if ($dllBase64) {
-        #   $dllBytes = [System.Convert]::FromBase64String($dllBase64)
-        #   [System.IO.File]::WriteAllBytes("a1800.dll", $dllBytes)
-        # }
-        
+        $dllBase64 = "${{ secrets.A1800_DLL_BASE64 }}"
+        if ($dllBase64 -and $dllBase64.Length -gt 0) {
+          try {
+            $dllBytes = [System.Convert]::FromBase64String($dllBase64)
+            [System.IO.File]::WriteAllBytes("a1800.dll", $dllBytes)
+            Write-Host "Using a1800.dll from GitHub secret"
+          } catch {
+            Write-Host "::error::Failed to decode A1800_DLL_BASE64 secret. Ensure it contains valid base64 data."
+            exit 1
+          }
+        }
         # Option 2: Download from a secure location (if permitted)
         # Invoke-WebRequest -Uri "YOUR_SECURE_URL/a1800.dll" -OutFile "a1800.dll"
         
         # For now, check if DLL exists in repo (not recommended for licensing reasons)
-        if (Test-Path "audioutils/a1800.dll") {
+        elseif (Test-Path "audioutils/a1800.dll") {
           Copy-Item "audioutils/a1800.dll" -Destination "a1800.dll"
           Write-Host "Using a1800.dll from repository"
         } else {

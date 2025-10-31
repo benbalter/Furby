@@ -19,6 +19,9 @@ import os
 import sys
 from pathlib import Path
 
+# Default sample rate for Furby Connect audio
+DEFAULT_SAMPLE_RATE = 16000
+
 def load_a1800_dll(dll_path='a1800.dll'):
     """Load the a1800.dll and set up conversion functions."""
     try:
@@ -31,17 +34,17 @@ def load_a1800_dll(dll_path='a1800.dll'):
     
     # Set up the encoding function
     encproto = ctypes.WINFUNCTYPE(ctypes.c_uint, LPCSTR, LPCSTR, UINT, ctypes.POINTER(UINT), UINT)
-    encparamflags = ((1, 'infile'), (1, 'outfile'), (1, 'samprate', 16000), (2, 'fh'), (1,'unk', 0))
+    encparamflags = ((1, 'infile'), (1, 'outfile'), (1, 'samprate', DEFAULT_SAMPLE_RATE), (2, 'fh'), (1,'unk', 0))
     encfunc = encproto(('enc', a1800dll), encparamflags)
     
     # Set up the decoding function
     decproto = ctypes.WINFUNCTYPE(ctypes.c_uint, LPCSTR, LPCSTR, ctypes.POINTER(UINT), UINT, UINT)
-    decparamflags = ((1, 'infile'), (1, 'outfile'), (2, 'fp'), (1, 'unk1', 16000), (1,'unk2', 0))
+    decparamflags = ((1, 'infile'), (1, 'outfile'), (2, 'fp'), (1, 'unk1', DEFAULT_SAMPLE_RATE), (1,'unk2', 0))
     decfunc = decproto(('dec', a1800dll), decparamflags)
     
     return encfunc, decfunc
 
-def convert_mp3_to_wav(mp3_path, wav_path, sample_rate=16000):
+def convert_mp3_to_wav(mp3_path, wav_path, sample_rate=DEFAULT_SAMPLE_RATE):
     """Convert MP3 to WAV using pydub."""
     try:
         from pydub import AudioSegment
@@ -64,7 +67,7 @@ def convert_mp3_to_wav(mp3_path, wav_path, sample_rate=16000):
     
     return wav_path
 
-def ensure_wav_format(input_path, sample_rate=16000):
+def ensure_wav_format(input_path, sample_rate=DEFAULT_SAMPLE_RATE):
     """Ensure the input file is in WAV format with correct settings."""
     input_path = Path(input_path)
     
@@ -81,7 +84,7 @@ def ensure_wav_format(input_path, sample_rate=16000):
         print("Supported formats: .mp3, .wav")
         sys.exit(1)
 
-def convert_wav_to_a18(wav_path, a18_path, encfunc, sample_rate=16000):
+def convert_wav_to_a18(wav_path, a18_path, encfunc, sample_rate=DEFAULT_SAMPLE_RATE):
     """Convert WAV to a18 using the a1800.dll."""
     print(f"Converting {wav_path} to a18...")
     
@@ -121,8 +124,8 @@ def main():
     parser.add_argument(
         '-s', '--sample-rate',
         type=int,
-        default=16000,
-        help='Sample rate for conversion (default: 16000)'
+        default=DEFAULT_SAMPLE_RATE,
+        help=f'Sample rate for conversion (default: {DEFAULT_SAMPLE_RATE})'
     )
     
     args = parser.parse_args()
@@ -153,7 +156,8 @@ def main():
         try:
             os.remove(wav_path)
             print(f"Cleaned up temporary file: {wav_path}")
-        except:
+        except OSError:
+            # Failed to clean up, but not critical
             pass
     
     if success:

@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 #
 #  dlc.py
@@ -38,11 +38,11 @@ class dlc(object):
 		def __init__(self, bytes_in=None):
 
 			if (bytes_in is not None):
-				self.rawbytes = str(bytes_in)
+				self.rawbytes = bytes_in if isinstance(bytes_in, bytes) else bytes_in.encode('latin-1')
 				self.cursor = 0
 				self.length = len(bytes_in)
 			else:
-				self.rawbytes = ""
+				self.rawbytes = b""
 				self.cursor = 0
 				self.length = 0
 			
@@ -81,10 +81,14 @@ class dlc(object):
 				for i in bytes_in:
 					self.__write__(i)
 			elif (t == str):
+				bytes_in_encoded = bytes_in.encode('latin-1') if isinstance(bytes_in, str) else bytes_in
+				self.rawbytes = self.rawbytes[:self.cursor] + bytes_in_encoded + self.rawbytes[self.cursor+len(bytes_in_encoded):]
+				self.cursor += len(bytes_in_encoded)
+			elif (t == bytes):
 				self.rawbytes = self.rawbytes[:self.cursor] + bytes_in + self.rawbytes[self.cursor+len(bytes_in):]
 				self.cursor += len(bytes_in)
 			elif (t == int):
-				self.rawbytes = self.rawbytes[:self.cursor] + chr(bytes_in) + self.rawbytes[self.cursor+len(bytes_in):]
+				self.rawbytes = self.rawbytes[:self.cursor] + bytes([bytes_in]) + self.rawbytes[self.cursor+1:]
 				self.cursor += 1
 			else:
 				raise TypeError("Do not know how to write objects of type " + str(t))		
@@ -137,9 +141,9 @@ class dlc(object):
 	#couple of weird magic values tho
 	class HEADER_section(dlcsection):
 		
-		magic_bytes = ("\x00".join("FURBY")) + ("\x00" * 23) + ("\x78\x56\x34\x12\x02\x00\x08\x00")
+		magic_bytes = (b"\x00".join([bytes([c]) for c in b"FURBY"])) + (b"\x00" * 23) + (b"\x78\x56\x34\x12\x02\x00\x08\x00")
 		main_header_length = 0x288
-		default_prefix = ("\x00".join("DLC_0000."))+ "\x00"
+		default_prefix = (b"\x00".join([bytes([c]) for c in b"DLC_0000."]))+ b"\x00"
 		weird_counter_initial_value = 0x0040cfb5
 		section_entry_length = 38
 
@@ -153,7 +157,7 @@ class dlc(object):
 
 			#If this section has been initialised with a non-zero string
 			#of bytes, attempt to parse it.
-			if (self.rawbytes != ""):
+			if (self.rawbytes != b""):
 
 				#Check magic bytes.
 				self.__seek__(0)
@@ -173,7 +177,7 @@ class dlc(object):
 					thisrun = self.__read__(self.section_entry_length)
 					
 					if (thisrun[:len(self.default_prefix)] == self.default_prefix):
-						section_name = thisrun[18:24:2]
+						section_name = thisrun[18:24:2].decode('latin-1')
 						section_length = struct.unpack("<I", thisrun[30:34])[0]
 						self.register_section(section_name, section_length)
 
@@ -182,7 +186,7 @@ class dlc(object):
 		def __compile__(self):
 
 			#Initialise.
-			self.rawbytes = ""
+			self.rawbytes = b""
 			self.__seek__(0)
 
 			#Start with the magic bytes.
@@ -195,15 +199,15 @@ class dlc(object):
 
 				#If we haven't registered a particular section, just print a blank string of length 38d
 				if sec not in self.registered_fields:
-					self.__write__("\x00"*self.section_entry_length)
+					self.__write__(b"\x00"*self.section_entry_length)
 
 				#Otherwise, try to write out its section reference.
 				else:
 					
-					self.__write__((self.default_prefix) + ("\x00".join(sec)) + ("\x00" * 3))
+					self.__write__((self.default_prefix) + (b"\x00".join([bytes([c]) for c in sec.encode('latin-1')])) + (b"\x00" * 3))
 					self.__pack__(weird_counter, num_bytes=4)
 					self.__pack__(self.registered_fields[sec], num_bytes=4)
-					self.__write__("\x00" * 4)
+					self.__write__(b"\x00" * 4)
 
 					weird_counter += 0x1A
 			
@@ -256,7 +260,7 @@ class dlc(object):
 
 			self.palettes = []
 			
-			if (self.rawbytes != ""):
+			if (self.rawbytes != b""):
 				
 				num_palettes,leftover = divmod(len(self.rawbytes), self.palette_size)
 				assert(leftover == 0)
@@ -288,7 +292,7 @@ class dlc(object):
 
 		def __compile__(self):
 
-			self.rawbytes = ""
+			self.rawbytes = b""
 			self.__seek__(0)
 
 			for p in self.palettes:
@@ -379,7 +383,7 @@ class dlc(object):
 			self.frame_playlists = []
 			self.frames = []
 
-			if (self.rawbytes != ""):
+			if (self.rawbytes != b""):
 				
 				#Get type-1 entries.
 				#[length of t2 entry, offset to t2 entry, ???(perhaps layer number?), terminator (0x40)]
@@ -419,11 +423,11 @@ class dlc(object):
 						assert(interim_frames[frame_offset][-1] == self.t3_terminator)
 
 				#Build "frames", checking for missing/unreferenced frames.
-				all_frame_offsets = list(range(self.t1_length/2, max(interim_frames)+1, 9))
+				all_frame_offsets = list(range(self.t1_length//2, max(interim_frames)+1, 9))
 				for i in all_frame_offsets:
 					
 					if i not in interim_frames:
-						print "dead frame at index %02d" % i
+						print("dead frame at index %02d" % i)
 						interim_frames[i] = [0,1,0,1,0,1,0,1,self.t3_terminator]
 
 				self.frames = [interim_frames[i] for i in all_frame_offsets]
@@ -440,11 +444,11 @@ class dlc(object):
 
 		def __compile__(self):
 
-			self.rawbytes = ""
+			self.rawbytes = b""
 			self.__seek__(0)
 
 			#build t3.
-			t3_raw = ""
+			t3_raw = b""
 			for f in self.frames:
 				for i in f:
 					t3_raw += struct.pack("<H", i)
@@ -456,7 +460,7 @@ class dlc(object):
 				self.frame_playlists[w]["t3_offsets_raw"] = [ ((i * 9) + word_offset) for i in self.frame_playlists[w]["frame_indices"] ]
 
 			#Fix up t2 offsets (and build t2.)
-			t2_raw = ""
+			t2_raw = b""
 			word_offset, checknum = divmod((self.t1_length+len(t3_raw)),2)
 			assert(checknum == 0)
 			ordered_by_t2_index = sorted(range(len(self.frame_playlists)), key=lambda w : self.frame_playlists[w]["framelist_index"])
@@ -486,7 +490,7 @@ class dlc(object):
 		def analyse_frames(self, anim_no, frame_no):
 			
 			thisframe = self.anim_tree[anim_no]["frames"][frame_no]
-			print [hex(i) for i in thisframe]
+			print([hex(i) for i in thisframe])
 
 		def audit_palettes(self):
 
@@ -497,7 +501,7 @@ class dlc(object):
 					for x in f[1::2]:
 						palettes.add(x)
 			
-			print [hex(i) for i in palettes]
+			print([hex(i) for i in palettes])
 
 	#Passes tests;
 	#All fields identified.
@@ -521,7 +525,7 @@ class dlc(object):
 
 			#If this section has been initialised with a non-zero string
 			#of bytes, attempt to parse it.
-			if (self.rawbytes != ""):
+			if (self.rawbytes != b""):
 
 				num_cels, cel_remainder = divmod(len(self.rawbytes), self.frame_length)
 
@@ -541,7 +545,7 @@ class dlc(object):
 						this_row = []
 						
 						#Yields four pixels per iteration.
-						for column in range(self.frame_width/3):
+						for column in range(self.frame_width//3):
 
 							#Three bytes give four pixels.
 							bytevals = [self.__unpack__(1) for i in range(3)]
@@ -563,7 +567,7 @@ class dlc(object):
 
 		def __compile__(self):
 
-			self.rawbytes = ""
+			self.rawbytes = b""
 			self.__seek__(0)
 
 			#Pretty easy.
@@ -573,7 +577,7 @@ class dlc(object):
 					
 					#four pixels are packed into three bytes.
 					assert(len(cel[row]) == self.cel_width)
-					for column in range(self.cel_width / 4):
+					for column in range(self.cel_width // 4):
 
 						pixels = cel[row][(column*4):((column+1)*4)]
 						
@@ -682,8 +686,8 @@ class dlc(object):
 				for x in range(self.cel_width):
 					colours.add(cel[y][x])
 
-			print colours
-			print hex(len(colours))
+			print(colours)
+			print(hex(len(colours)))
 
 	#Passes tests;
 	#several fields in the T3 and T4 entries in need of identification tho
@@ -697,7 +701,7 @@ class dlc(object):
 
 			#If this section has been initialised with a non-zero string
 			#of bytes, attempt to parse it.
-			if (self.rawbytes != ""):
+			if (self.rawbytes != b""):
 
 				# Get first word. "Number of type-1 entries"
 				type1_count = self.__unpack__(2)
@@ -824,15 +828,15 @@ class dlc(object):
 								self.action_tree[i][j][k][l] = {
 									"address"	:	laddress,
 									"rawbytes"	:	rawbytes,
-									"bytes"		:	[hex(ord(b)) for b in rawbytes],
+									"bytes"		:	[hex(b) for b in rawbytes],
 									"vals"		:	unboxing,
-									"seq"		:	ord(rawbytes[0])
+									"seq"		:	rawbytes[0]
 								}
 
 		def __compile__(self):
 
 			#Initialise.
-			self.rawbytes = ""
+			self.rawbytes = b""
 			self.__seek__(0)
 
 			#Work out the sizes of the type-1, -2, -3, and -4 sub-sections.
@@ -855,7 +859,7 @@ class dlc(object):
 
 			#Prepopulate this section's content with zeroes (as we'll 
 			#be hopping around quite a bit.)
-			self.__write__("\x00" * sum([type1_len, type2_len, type3_len, type4_len]))
+			self.__write__(b"\x00" * sum([type1_len, type2_len, type3_len, type4_len]))
 			self.__seek__(0)
 
 			#Start with the "number of type-1 entries" word.
@@ -924,7 +928,7 @@ class dlc(object):
 	#All fields identified.
 	class AMF_section(dlcsection):
 
-		a18_header = "\x00\xff\x00\xffGENERALPLUS SP\x00\x00"
+		a18_header = b"\x00\xff\x00\xffGENERALPLUS SP\x00\x00"
 		samplerate = 16000
 
 		def __initialise__(self):
@@ -932,7 +936,7 @@ class dlc(object):
 
 			#If this section has been initialised with a non-zero string
 			#of bytes, attempt to parse it.
-			if (self.rawbytes != ""):
+			if (self.rawbytes != b""):
 
 				#Get the number of tracks contained in't.
 				track_count = self.__unpack__(4)
@@ -954,7 +958,7 @@ class dlc(object):
 		def __compile__(self):
 			
 			#Initialise.
-			self.rawbytes = ""
+			self.rawbytes = b""
 			self.__seek__(0)
 
 			#Start with the "number of entries" dword.
@@ -978,7 +982,7 @@ class dlc(object):
 
 		def __get_track__(self, trackpath):
 
-			with open(trackpath, "r") as f:
+			with open(trackpath, "rb") as f:
 
 				#Check for generalplus header; remove if found.
 				firstbytes = f.read(len(self.a18_header))
@@ -1022,10 +1026,25 @@ class dlc(object):
 			self.remove_track(tracknumber)
 			self.add_track(trackpath, tracknumber)
 
-		def minify_audio(self, newlength_in=128):
-
+		def minify_audio(self, newlength_in=16000):
+			"""
+			Minify audio tracks to reduce DLC size for faster testing.
+			
+			Args:
+				newlength_in: Target audio length in bytes (default: 16000 = ~1 second at 16kHz)
+			
+			Note: The default of 16000 bytes (~1 second) is the minimum recommended
+			      to avoid flash errors. Values below 8000 bytes may cause issues.
+			"""
+			
 			#This always needs to be a multiple of 8.
 			audio_length = ((newlength_in  >> 3 ) << 3)
+			
+			# Ensure minimum safe length to avoid flash errors
+			if audio_length < 8000:
+				print "WARNING: Audio length %d is too small, using 8000 bytes minimum" % audio_length
+				audio_length = 8000
+			
 			sampling_length = 2
 			size_length = 4
 			
@@ -1033,8 +1052,16 @@ class dlc(object):
 			sample_rate = struct.pack("<H", self.samplerate)
 			
 			for i in range(len(self.tracks)):
+				# Check if track is long enough
+				track_data_length = len(self.tracks[i]) - 6  # Subtract header bytes
 				
-				newtrack = newlength_packed + sample_rate + self.tracks[i][6:6+audio_length]
+				if track_data_length >= audio_length:
+					# Truncate to new length
+					newtrack = newlength_packed + sample_rate + self.tracks[i][6:6+audio_length]
+				else:
+					# Track is shorter than target, keep original
+					newtrack = self.tracks[i]
+				
 				self.tracks[i] = newtrack
 
 	#Passes tests;
@@ -1055,7 +1082,7 @@ class dlc(object):
 
 			#If this section has been initialised with a non-zero string
 			#of bytes, attempt to parse it.
-			if (self.rawbytes != ""):
+			if (self.rawbytes != b""):
 
 				#Get the number of playlists contained in't.
 				playlist_count = self.__unpack__(2)
@@ -1088,7 +1115,7 @@ class dlc(object):
 
 		def __compile__(self):
 			#Initialise.
-			self.rawbytes = ""
+			self.rawbytes = b""
 			self.__seek__(0)
 
 			#Start with the "number of entries" word.
@@ -1153,7 +1180,7 @@ class dlc(object):
 			self.phrases = []
 			self.header_entry_length = self.default_header_entry_length
 			
-			if (self.rawbytes != ""):
+			if (self.rawbytes != b""):
 
 				#Get the number of phrases contained in't.
 				phrase_count = self.__unpack__(2)
@@ -1181,7 +1208,7 @@ class dlc(object):
 		def __compile__(self):
 
 			#Initialise.
-			self.rawbytes = ""
+			self.rawbytes = b""
 			self.__seek__(0)
 
 			#Start with the "number of entries" word.
@@ -1225,7 +1252,7 @@ class dlc(object):
 
 			#If this section has been initialised with a non-zero string
 			#of bytes, attempt to parse it.
-			if (self.rawbytes != ""):
+			if (self.rawbytes != b""):
 
 				#Get the number of sequences contained in't.
 				seq_count = self.__unpack__(2)
@@ -1254,7 +1281,7 @@ class dlc(object):
 		def __compile__(self):
 
 			#Initialise.
-			self.rawbytes = ""
+			self.rawbytes = b""
 			self.__seek__(0)
 
 			#Start with the "number of entries" word.
@@ -1292,7 +1319,7 @@ class dlc(object):
 			self.animations = []
 			self.header_entry_length = self.default_header_entry_length
 			
-			if (self.rawbytes != ""):
+			if (self.rawbytes != b""):
 
 				#Get the number of animations contained in't.
 				anim_count = self.__unpack__(2)
@@ -1317,7 +1344,7 @@ class dlc(object):
 		def __compile__(self):
 
 			#Initialise.
-			self.rawbytes = ""
+			self.rawbytes = b""
 			self.__seek__(0)
 
 			#Start with the "number of entries" word.
@@ -1352,53 +1379,58 @@ class dlc(object):
 
 		if filepath_in is not None:
 
-			with open(filepath_in, "r") as f:
+			# Read all file data first, then close the file before processing
+			with open(filepath_in, "rb") as f:
+				header_bytes = f.read(0x288)
+				file_content = f.read()  # Read remaining content
 
-				#Parse header.
-				self.dlc_header = self.HEADER_section(f.read(0x288))
+			# Parse header
+			self.dlc_header = self.HEADER_section(header_bytes)
 
-				#Map sections
-				section_map = self.dlc_header.map_dlc()
+			# Map sections
+			section_map = self.dlc_header.map_dlc()
 
-				filemap = { e[0] : {"l" : e[1], "o" : e[2]} for e in section_map}
+			filemap = { e[0] : {"l" : e[1], "o" : e[2]} for e in section_map}
+			
+			# Generate section objects
+			section_generators = {
+				"PAL"   	:	self.PAL_section,
+				"SPR"   	:	self.SPR_section,
+				"CEL"   	:	self.CEL_section,
+				"XLS"   	:	self.XLS_section,
+				"AMF"   	:	self.AMF_section,
+				"APL"   	:	self.APL_section,
+				"LPS"   	:	self.LPS_section,
+				"SEQ"   	:	self.SEQ_section,
+				"MTR"   	:	self.MTR_section,
+			}
+
+			for sec in filemap:
+
+				# Extract section data from file content (offset is relative to start of file after header)
+				offset = filemap[sec]["o"] - 0x288  # Adjust offset since we already read header
+				length = filemap[sec]["l"]
+				rawbytes = file_content[offset:offset+length]
+
+				d = section_generators[sec](rawbytes)
 				
-				#Generate section objects.
-				section_generators = {
-					"PAL"   	:	self.PAL_section,
-					"SPR"   	:	self.SPR_section,
-					"CEL"   	:	self.CEL_section,
-					"XLS"   	:	self.XLS_section,
-					"AMF"   	:	self.AMF_section,
-					"APL"   	:	self.APL_section,
-					"LPS"   	:	self.LPS_section,
-					"SEQ"   	:	self.SEQ_section,
-					"MTR"   	:	self.MTR_section,
-				}
+				self.dlc_sections[sec] = d
+				
+				if (self_test is not None):
 
-				for sec in filemap:
-
-					f.seek(filemap[sec]["o"])
-					rawbytes = f.read(filemap[sec]["l"])
-
-					d = section_generators[sec](rawbytes)
-					
-					self.dlc_sections[sec] = d
-					
-					if (self_test is not None):
-
-						print "testing %s at offset %d" % (sec, filemap[sec]["o"])
-						newbytes = d.write_out()
-						try:
-							print(len(rawbytes) == len(newbytes))
-							assert(rawbytes == newbytes)
-						except:
-							i=0
-							for i in range(min(len(rawbytes), len(newbytes))):
-								if rawbytes[i] != newbytes[i]:
-									break
-							raise AssertionError("Test failed: error at offset 0x%x\n\texpected %02x, got %02x" % (i, ord(rawbytes[i]), ord(newbytes[i]) ))
-						else:
-							print "\tTest Successful!"
+					print("testing %s at offset %d" % (sec, filemap[sec]["o"]))
+					newbytes = d.write_out()
+					try:
+						print(len(rawbytes) == len(newbytes))
+						assert(rawbytes == newbytes)
+					except:
+						i=0
+						for i in range(min(len(rawbytes), len(newbytes))):
+							if rawbytes[i] != newbytes[i]:
+								break
+						raise AssertionError("Test failed: error at offset 0x%x\n\texpected %02x, got %02x" % (i, rawbytes[i], newbytes[i]))
+					else:
+						print("\tTest Successful!")
 
 	#Builds a new DLC.
 	def build(self, filepath_in):
@@ -1413,7 +1445,7 @@ class dlc(object):
 				self.dlc_header.register_section(sec, len(generated_sections[sec]))
 
 		#Open the file.
-		with open(filepath_in, "w") as f:
+		with open(filepath_in, "wb") as f:
 
 			#Write header.
 			f.write(self.dlc_header.write_out())

@@ -2,3 +2,6 @@ test_dlc.py
 dlc
 *.pyc
 bluefluff
+*.dlc
+newdlc.dlc
+copilot_furby.dlc

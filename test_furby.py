@@ -333,7 +333,11 @@ class TestHalloween(unittest.TestCase):
         plan = {
             "gap": 0.5, "every": [30, 60], "scenes": [["pink.a", "blue.b"]],
             "furbies": {
-                "pink": {"checksum": 0x12345678, "clips": {"a": {"action": [75, 0, 0, 2], "seconds": 2.0}}},
+                "pink": {
+                    "checksum": 0x12345678,
+                    "antenna": [255, 0, 0],
+                    "clips": {"a": {"action": [75, 0, 0, 2], "seconds": 2.0}},
+                },
                 "blue": {"clips": {"b": {"action": [75, 0, 4, 4], "seconds": 1.5}}},
             },
         }
@@ -364,7 +368,9 @@ class TestHalloween(unittest.TestCase):
         self.assertTrue(any("reflash" in line and "pink" in line for line in logs))
         plays = [(a, d) for a, d in sent if d[0] == 0x13]
         self.assertEqual(plays, [("aa", bytes([0x13, 0, 75, 0, 0, 2])), ("bb", bytes([0x13, 0, 75, 0, 4, 4]))])
-        self.assertEqual(slept, [2.5, 2.0])
+        # Pink's antenna glows for its line and goes dark after; blue has no color set
+        self.assertEqual([d for a, d in sent if d[0] == 0x14], [bytes([0x14, 255, 0, 0]), bytes([0x14, 0, 0, 0])])
+        self.assertEqual(slept, [2.0, 0.5, 1.5, 0.5])
         self.assertTrue(30 <= waits[1] <= 60)
 
     @unittest.skipUnless(shutil.which("micropython"), "micropython not installed")
@@ -408,6 +414,30 @@ print("ok")
         result = subprocess.run(["micropython", "-c", script], capture_output=True, text=True, check=False,
                                 env=dict(os.environ, MICROPYPATH=".frozen:."))
         self.assertEqual(result.stdout.strip(), "ok", result.stderr)
+
+
+class TestRehearsal(unittest.TestCase):
+    """porch.py --rehearse plays each step's source clip, in order, with no Furbies"""
+
+    def test_rehearse_scene(self):
+        import argparse
+        import asyncio
+        from unittest import mock
+
+        import porch
+
+        plan = {
+            "gap": 0, "every": [30, 60], "scenes": [["pink.a", "blue.b"]],
+            "furbies": {
+                "pink": {"antenna": [255, 0, 0], "clips": {"a": {"action": [75, 0, 0, 2], "seconds": 0, "source": "a.wav"}}},
+                "blue": {"clips": {"b": {"action": [75, 0, 0, 2], "seconds": 0, "source": "b.wav"}}},
+            },
+        }
+        played = []
+        with mock.patch.object(porch, "play_audio", played.append), mock.patch("builtins.print"):
+            asyncio.run(porch.rehearse(plan, argparse.Namespace(clip=None, scene=0)))
+        # The same action plays each Furby's own clip
+        self.assertEqual(played, ["a.wav", "b.wav"])
 
 
 class TestFirmware(unittest.TestCase):

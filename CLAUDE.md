@@ -25,6 +25,7 @@ Halloween show pipeline:
 ```sh
 python halloween.py [--skip-missing]   # halloween/show.toml → build/halloween/{pink,blue}.dlc + show.json
 python porch.py --list | --clip pink.cackle | --scene 0   # run/test the show from a computer (needs bleak)
+python porch.py --rehearse [--scene N]  # play scenes on this computer's speakers; no Furbies or bleak needed
 firmware/deploy.sh                      # copy the show to an ESP32 running MicroPython (uses uvx mpremote/mpy-cross)
 python spooky_eyes.py --theme pumpkin   # standalone eyes DLC
 ```

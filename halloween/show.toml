@@ -13,6 +13,7 @@ every = [40, 100]   # seconds between scenes, picked at random in this range
 # Pink is the evil Furby: demon eyes, scary lines.
 [furbies.pink]
 theme = "demon"
+antenna = [255, 0, 0]  # antenna color while it speaks (red, green, blue)
 
 [furbies.pink.clips]
 cackle = "build/sfx/witch-cackle-0.wav"
@@ -29,6 +30,7 @@ scariest = "build/cloned/pink_laugh.wav"
 # Blue is the good Furby: jack-o'-lantern eyes, friendly lines.
 [furbies.blue]
 theme = "pumpkin"
+antenna = [255, 100, 0]
 
 [furbies.blue.clips]
 trick = "build/cloned/blue_trick.wav"

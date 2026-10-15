@@ -70,8 +70,13 @@ def build_show(show, out_dir="./build/halloween", skip_missing=False, dlc_in="./
             checksum = zlib.adler32(f.read())  # the Furby reports this for its active DLC
         plan["furbies"][name] = {
             "checksum": checksum,
+            "antenna": furby.get("antenna"),
             "clips": {
-                k: {"action": list(codes[k]), "seconds": round((os.path.getsize(a18[k]) - 6) / A18_BYTES_PER_SECOND, 2)}
+                k: {
+                    "action": list(codes[k]),
+                    "seconds": round((os.path.getsize(a18[k]) - 6) / A18_BYTES_PER_SECOND, 2),
+                    "source": clips[k],  # for porch.py --rehearse
+                }
                 for k in sorted(a18)
             },
         }

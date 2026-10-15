@@ -44,6 +44,11 @@ def trigger_command(action):
     return bytes([0x13, 0] + list(action))
 
 
+def antenna_command(rgb):
+    """Bytes that set the antenna light, e.g. (255, 0, 0) for red; (0, 0, 0) turns it off."""
+    return bytes([0x14] + list(rgb))
+
+
 def active_slot(info):
     """Active DLC slot from a 0x72 (DLC info) response, or None."""
     active = (info[7] << 8) | info[8]
@@ -135,6 +140,9 @@ class Furby:
     async def play(self, action):
         await self.command(trigger_command(action))
 
+    async def set_antenna(self, rgb):
+        await self.command(antenna_command(rgb))
+
     async def keep_alive(self):
         while self.connected():
             if ticks_diff(ticks_ms(), self.last_sent) > KEEPALIVE_AFTER_MS:
@@ -192,9 +200,16 @@ class Show:
     async def play_step(self, step):
         self.heartbeat = ticks_ms()
         name, clip = step.split(".")
-        info = self.plan["furbies"][name]["clips"][clip]
-        await self.furbies[name].play(info["action"])
-        await self.sleep(info["seconds"] + self.plan["gap"])
+        furby, info = self.furbies[name], self.plan["furbies"][name]["clips"][clip]
+        # The speaking Furby's antenna glows its color for the line
+        antenna = self.plan["furbies"][name].get("antenna")
+        if antenna:
+            await furby.set_antenna(antenna)
+        await furby.play(info["action"])
+        await self.sleep(info["seconds"])
+        if antenna:
+            await furby.set_antenna((0, 0, 0))
+        await self.sleep(self.plan["gap"])
 
     async def play_scene(self, scene):
         self.log("Scene: %s" % " -> ".join(scene))

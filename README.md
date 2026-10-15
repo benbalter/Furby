@@ -1,5 +1,5 @@
 # Furby
-## Python tools for handing Furby Connect DLC files
+## Python tools for handling Furby Connect DLC files
 
 <p align="center">
 	<img src="images/gifs/gif-full-padding-100.gif">
@@ -8,6 +8,15 @@
 **Disclaimer: This script is pretty alpha; use at your own risk. Bad DLCs can make your Furby Connect very unhappy.**
 
 ### The original blog post can be found [here](https://www.contextis.com/blog/dont-feed-them-after-midnight-reverse-engineering-the-furby-connect)
+
+## What this fork adds
+
+On top of [Context's original tools](https://github.com/ctxis/Furby), this fork adds:
+
+- **[A two-Furby Halloween show](#example-a-two-furby-halloween-show):** an evil Furby and a friendly one trade lines in short scenes, run by a hidden ESP32 or a laptop.
+- **[Custom eyes](#example-spooky-halloween-eyes):** demon and jack-o'-lantern eyes, drawn in code.
+- **[Audio tools that need no Windows DLL](#audio-conversion):** convert any audio to the Furby's `.a18` format, unpack a DLC's clips to WAV, and fetch public-domain sound effects.
+- **[Notes on flashing your own DLC](#flashing-a-dlc).**
 
 ## Requirements
 
@@ -31,6 +40,9 @@ The test suite includes:
 - Python 3 compatibility tests (bytes handling, integer division)
 - Section access and manipulation tests
 - Error handling tests
+- Custom eyes, the Halloween show build, and the show engine and firmware (against stand-ins for the ESP32's Bluetooth and pins)
+
+With [MicroPython](https://micropython.org)'s Unix port installed (`brew install micropython`), the show engine is also tested under MicroPython, as it runs on the board. Lint with [ruff](https://docs.astral.sh/ruff/): `ruff check . && ruff format --check .`
 
 
 ## DLC Class
@@ -247,6 +259,7 @@ python audioutils/convert_to_a18.py input.mp3 -o output.a18
 ```
 
 See [audioutils/README.md](audioutils/README.md) for more information.
+
 ## Example: Making Furby Play Toccata in D Minor
 
 Want to give your Furby a dramatic, theatrical personality? Check out `demo_toccata.py` for a complete example of how to make your Furby play Bach's famous Toccata and Fugue in D Minor.
@@ -279,20 +292,30 @@ It writes `build/spooky_<theme>.dlc`, plus a `preview.gif` of the eyes in `build
 
 The build copies Context's `hacked.dlc`, which [FurBLE](https://github.com/pdjstone/furby-web-bluetooth) ships and which is known to flash: every stock audio track is cut to 128 bytes, and apart from audio the result matches `hacked.dlc` section for section. The script refuses to write anything over about 350 KB, because bigger uploads time out.
 
-To flash, use a FurBLE that can upload your own file. The hosted FurBLE pages only flash their bundled DLCs; [benbalter/furby-web-bluetooth](https://github.com/benbalter/furby-web-bluetooth) adds "Upload Custom". Serve it over http (`npx serve`), since Web Bluetooth won't load DLCs from a `file://` page, and open it in Chrome. Reset the Furby first (hold it upside down, hold the tongue, and pull the tail until the eyes go dark), and upload one DLC per reboot.
+A DLC only changes what plays when a phone or computer triggers an action over Bluetooth. The Furby's own reactions to noises, petting and so on come from its built-in memory, so they sound the same with any DLC active. To try the eyes, flash the DLC (below), then trigger `75 0 4 4` from FurBLE's custom action box.
 
-A DLC only changes what plays when a phone or computer triggers an action over Bluetooth. The Furby's own reactions to noises, petting and so on come from its built-in memory, so they sound the same with any DLC active. Reset the Furby to remove the DLC.
+## Flashing a DLC
+
+The hosted FurBLE pages only flash their bundled DLCs. [benbalter/furby-web-bluetooth](https://github.com/benbalter/furby-web-bluetooth) adds "Upload Custom":
+
+1. Serve it over http (`python3 -m http.server` in its folder) and open `furble.html` in Chrome. Web Bluetooth won't load files from a `file://` page.
+2. Reset the Furby: hold it upside down, hold the tongue, and pull the tail until the eyes go dark. Upload one DLC per reset.
+3. Click **Connect**, choose your `.dlc`, and click **Upload Custom**. Keep the Furby still and close to the computer; a 200 KB DLC takes about 3 minutes. The antenna turns green when the DLC is active.
+
+The Furby stores DLCs under 8.3-style names (`____PINK.DLC`), so keep file names to 8 letters or fewer. If uploads time out on your computer, add `?packetDelay=30` to the page's address to send more slowly. To remove a DLC, reset the Furby.
 
 ## Example: A two-Furby Halloween show
 
 `halloween.py` and `porch.py` turn two Furbies into a call-and-response act: an evil Furby with demon eyes and a friendly one with jack-o'-lantern eyes, trading lines like "No feed after midnight..." and "Kah scared!".
 
-1. List each Furby's clips and the scenes that string them together in [`halloween/show.toml`](halloween/show.toml). Clips can be anything ffmpeg reads; `audioutils/freesound_fetch.py` fetches public-domain sound effects, and `audioutils/extract_voice.py` unpacks the Furby's own voice.
+You need two Furby Connects with their DLCs flashed, and something to run the show. That can be a computer with Bluetooth, or, with no computer on the night, an ESP32-S3 board running MicroPython on a USB power bank. The firmware targets the [FireBeetle 2 ESP32-S3](https://wiki.dfrobot.com/SKU_DFR0975_FireBeetle_2_Board_ESP32_S3) (its button and LED pins are at the top of [`firmware/main.py`](firmware/main.py)); other ESP32 boards should work with those changed. Boards with an external-antenna socket, like the FireBeetle's -U version, need the antenna attached before powering up.
+
+1. List each Furby's clips and the scenes that string them together in [`halloween/show.toml`](halloween/show.toml). Clips can be anything ffmpeg reads, up to a few seconds each; `audioutils/freesound_fetch.py` fetches public-domain sound effects from [Freesound](https://freesound.org), and `audioutils/extract_voice.py` unpacks the Furby's own voice. The paths in `show.toml` point into `build/`, so make or fetch the clips first, or pass `--skip-missing` to build with what you have.
 2. Build both DLCs: `python halloween.py` writes `build/halloween/pink.dlc`, `blue.dlc` and `show.json`. Each clip gets its own `75` action, chosen so no two actions share a track.
-3. Flash `pink.dlc` to one Furby and `blue.dlc` to the other (see above). Keep the file names: the show tells the Furbies apart by the name of their active DLC.
+3. Flash `pink.dlc` to one Furby and `blue.dlc` to the other ([see above](#flashing-a-dlc)). Keep the file names: the show tells the Furbies apart by the name of their active DLC.
 4. Run the show. Both ways use the same show engine, [`furbyshow.py`](furbyshow.py):
    - **From a computer:** `python porch.py` (needs [bleak](https://github.com/hbldh/bleak)). `python porch.py --clip pink.cackle` plays one clip to test.
-   - **From an ESP32, with no computer:** flash [MicroPython](https://micropython.org/download/) to the board, then run `firmware/deploy.sh` (needs [uv](https://docs.astral.sh/uv/)). It installs [aioble](https://github.com/micropython/micropython-lib/tree/master/micropython/bluetooth/aioble) and copies the show over. The board starts the show on power-up, keeps both Furbies awake, plays a random scene every minute or so, and plays one right away when you press its button. Its LED stays on during a scene and blinks while a Furby is missing. A watchdog reboots it if the show ever hangs. Hold the button while plugging it in to skip the show. After changing the show, reflash both Furbies and run `deploy.sh` again; the show warns if a Furby's DLC doesn't match.
+   - **From an ESP32, with no computer:** flash [MicroPython](https://micropython.org/download/ESP32_GENERIC_S3/) to the board (for the FireBeetle's 8 MB of octal PSRAM, the `SPIRAM_OCT` build), then run `firmware/deploy.sh` (needs [uv](https://docs.astral.sh/uv/)). It installs [aioble](https://github.com/micropython/micropython-lib/tree/master/micropython/bluetooth/aioble) and copies the show over. The board starts the show on power-up, keeps both Furbies awake, plays a random scene every minute or so, and plays one right away when you press its button. Its LED stays on during a scene and blinks while a Furby is missing. A watchdog reboots it if the show ever hangs. Hold the button while plugging it in to skip the show. After changing the show, reflash both Furbies and run `deploy.sh` again; the show warns if a Furby's DLC doesn't match.
 
 ## License
 
@@ -306,7 +329,9 @@ We really hope you enjoy tinkering with the scripts. If you'd like to contribute
 
  - Cataloguing the motions in the MTR section
  - Improving the `__compile__()` function of both the XLS and SPR sections to be more robust
- - Implementing an analogue of the GeneralPlus a18 codec in Python, for converting .wav file
+ - Mapping which of the 75 ("app video") actions are safe to reuse beyond the ones `spooky_eyes.scene_slots()` picks
+
+(The a18 codec is done: see [John-K/a1800_codec](https://github.com/John-K/a1800_codec).)
 
 Enjoy - we're looking forward to seeing what you make with it!
 
@@ -316,3 +341,7 @@ Enjoy - we're looking forward to seeing what you make with it!
 - [Jeija's Bluefluff project](https://github.com/Jeija/bluefluff)
 - [L0ss & Swarley's Furbhax project](https://github.com/swarley7/furbhax)
 - [Igor Afanasyev's Furby audio implementation](https://github.com/iafan/Hacksby)
+- [John-K's open-source A1800 codec](https://github.com/John-K/a1800_codec)
+- [PyFluff, a Python port of Bluefluff](https://github.com/martinwoodward/pyfluff)
+- [Extracted Furby Connect eye animations](https://github.com/lib-fluff-so/furby-connect-eyes-extract)
+- [aioble, MicroPython's Bluetooth library](https://github.com/micropython/micropython-lib/tree/master/micropython/bluetooth/aioble)

@@ -4,8 +4,10 @@ This directory contains utilities for working with Furby Connect audio files in 
 
 ## Requirements
 
+`encode_a18.py` (any audio → .a18) and `extract_voice.py` (every clip in a DLC → WAV) use the open-source [a1800_codec](https://github.com/John-K/a1800_codec) (`pip install a1800-codec`) and run on any OS with Python 3.11+ and ffmpeg. `freesound_fetch.py` downloads public-domain sound effects. The older scripts below need:
+
 - **a1800.dll**: Download the [GeneralPlus Gadget utility](http://www.generalplus.com/1LVlangLNxxSVyySNservice_n_support_d) and extract the a1800.dll file from it
-- **Python 3.8+** with the following packages:
+- **Python 3.11+** with the following packages:
   - `pydub` (for MP3 support): `pip install pydub`
   - `Pillow` (already in requirements.txt)
 - **ffmpeg** (for MP3 conversion): Required by pydub for MP3 support

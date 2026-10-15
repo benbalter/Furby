@@ -1,0 +1,64 @@
+# SPDX-FileCopyrightText: 2026 Ben Balter
+# SPDX-License-Identifier: MIT
+# The Halloween show: what each Furby can say, and the scenes that string
+# them together. halloween.py builds each Furby's DLC from this file, and
+# porch.py plays the scenes. Clip paths are relative to the repo root and live
+# in build/ (gitignored): build/sfx from audioutils/freesound_fetch.py, build/voice
+# from audioutils/extract_voice.py, build/cloned from a voice clone you make.
+
+[show]
+gap = 0.6           # seconds between one line ending and the next starting
+every = [40, 100]   # seconds between scenes, picked at random in this range
+
+# Pink is the evil Furby: demon eyes, scary lines.
+[furbies.pink]
+theme = "demon"
+
+[furbies.pink.clips]
+cackle = "build/sfx/witch-cackle-0.wav"
+cackle2 = "build/sfx/witch-cackle-1.wav"
+laugh = "build/sfx/evil-laugh-0.wav"
+scream = "build/sfx/scream-0.wav"
+moan = "build/sfx/ghost-moan-0.wav"
+midnight = "build/cloned/pink_midnight.wav"
+boo = "build/cloned/pink_boo.wav"
+candy = "build/cloned/pink_candy.wav"
+watching = "build/cloned/pink_watching.wav"
+scariest = "build/cloned/pink_laugh.wav"
+
+# Blue is the good Furby: jack-o'-lantern eyes, friendly lines.
+[furbies.blue]
+theme = "pumpkin"
+
+[furbies.blue.clips]
+trick = "build/cloned/blue_trick.wav"
+happy = "build/cloned/blue_happy.wav"
+what = "build/cloned/blue_what.wav"
+scared = "build/cloned/blue_scared.wav"
+thanks = "build/cloned/blue_thanks.wav"
+door = "build/sfx/creaky-door-0.wav"
+
+# Each scene plays its steps in order: "<furby>.<clip>".
+[[scenes]]
+steps = ["pink.cackle", "blue.what"]
+
+[[scenes]]
+steps = ["blue.trick", "pink.candy"]
+
+[[scenes]]
+steps = ["pink.midnight", "blue.scared"]
+
+[[scenes]]
+steps = ["blue.happy", "pink.boo", "blue.scared"]
+
+[[scenes]]
+steps = ["blue.door", "pink.scream", "blue.what"]
+
+[[scenes]]
+steps = ["pink.watching", "pink.laugh"]
+
+[[scenes]]
+steps = ["blue.thanks", "pink.scariest"]
+
+[[scenes]]
+steps = ["pink.moan", "pink.cackle2", "blue.scared"]

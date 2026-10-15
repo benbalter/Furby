@@ -1,1 +1,2 @@
 Pillow
+a1800-codec

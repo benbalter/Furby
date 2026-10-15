@@ -45,15 +45,30 @@ def make_hacked_inverting(dlc_in="./dlc/dlc2/tu003410.dlc", left_gif="./images/d
 	#D.dlc_sections["AMF"].replace_track(138, "./your/audio/file1.a18")
 	#D.dlc_sections["AMF"].replace_track(11, "./your/audio/file2.a18")
 
+	install_eyes(D, left_gif, right_gif)
+
+	#Build it.
+	D.build(dlc_out)
+	return
+
+
+#Swaps two 2-frame, 128x128, 64-colour GIFs onto Furby's eyes. They play on
+#actions 75-0-4-4, 75-0-3-4 and 75-0-0-3, alternating between the two frames.
+#Each eye can also be a list of single-frame GIFs, one per frame, all sharing
+#the first one's palette.
+def install_eyes(D, left_gif, right_gif):
+
 	#Two gifs here: a left gif, and a right gif.
+	left_frames = left_gif if isinstance(left_gif, (list, tuple)) else [left_gif]
+	right_frames = right_gif if isinstance(right_gif, (list, tuple)) else [right_gif]
 
 	#Palettes.
-	left_palette = D.dlc_sections["PAL"].extract_palette(left_gif)
-	right_palette = D.dlc_sections["PAL"].extract_palette(right_gif)
+	left_palette = D.dlc_sections["PAL"].extract_palette(left_frames[0])
+	right_palette = D.dlc_sections["PAL"].extract_palette(right_frames[0])
 
 	#Quarters.
-	left_cels = D.dlc_sections["CEL"].quarterize(left_gif)
-	right_cels = D.dlc_sections["CEL"].quarterize(right_gif)
+	left_cels = [c for f in left_frames for c in D.dlc_sections["CEL"].quarterize(f)]
+	right_cels = [c for f in right_frames for c in D.dlc_sections["CEL"].quarterize(f)]
 
 	#Convenient transparent cel is currently at 0, leave it there.
 	#Move convenient blank cell to cel 1. (It's currently at number 17.)
@@ -82,26 +97,19 @@ def make_hacked_inverting(dlc_in="./dlc/dlc2/tu003410.dlc", left_gif="./images/d
 	#(flame palette is the fifth offset in this list)
 	flame_palette = existing_palettes[4]
 
+	#Point every animation slot in these sequences at our eyes. (This matches
+	#the hacked.dlc that FurBLE ships, which is known to flash and play.)
 	#Replacing animations referenced in sequence 15. (75-0-4-4)
-	#for i in range(3,11,2):
-		#D.dlc_sections["SEQ"].sequences[15][i] = 0x8401
-	D.dlc_sections["SEQ"].sequences[15][3] = 0x8401
-	D.dlc_sections["SEQ"].sequences[15][4] = D.dlc_sections["SEQ"].entry_terminator
-	D.dlc_sections["SEQ"].sequences[15] = D.dlc_sections["SEQ"].sequences[15][:5]
+	for i in range(3,11,2):
+		D.dlc_sections["SEQ"].sequences[15][i] = 0x8401
 
 	#Replacing animations in sequence 50. (75-0-3-4)
-	#for i in range(3,11,2):
-		#D.dlc_sections["SEQ"].sequences[50][i] = 0x8401
-	D.dlc_sections["SEQ"].sequences[50][3] = 0x8401
-	D.dlc_sections["SEQ"].sequences[50][4] = D.dlc_sections["SEQ"].entry_terminator
-	D.dlc_sections["SEQ"].sequences[50] = D.dlc_sections["SEQ"].sequences[50][:5]
+	for i in range(3,11,2):
+		D.dlc_sections["SEQ"].sequences[50][i] = 0x8401
 	
 	#Replacing animations in sequence 22. (75-0-0-3)
-	#for i in range(3,15,2):
-		#D.dlc_sections["SEQ"].sequences[22][i] = 0x8401
-	D.dlc_sections["SEQ"].sequences[22][3] = 0x8401
-	D.dlc_sections["SEQ"].sequences[22][4] = D.dlc_sections["SEQ"].entry_terminator
-	D.dlc_sections["SEQ"].sequences[22] = D.dlc_sections["SEQ"].sequences[22][:5]
+	for i in range(3,15,2):
+		D.dlc_sections["SEQ"].sequences[22][i] = 0x8401
 
 	#Remove eye frames, replace with white.
 	for i in [8,9]:
@@ -184,10 +192,6 @@ def make_hacked_inverting(dlc_in="./dlc/dlc2/tu003410.dlc", left_gif="./images/d
 		D.dlc_sections["SPR"].frames[f][5] = flame_palette
 		D.dlc_sections["SPR"].frames[f][7] = flame_palette
 
-
-	#Build it.
-	D.build(dlc_out)
-	return
 
 
 if (__name__ == "__main__"):

@@ -2,30 +2,78 @@ name: Python Tests
 
 on:
   push:
-    branches: [ main, copilot/update-to-modern-python ]
+    branches: [ master ]
   pull_request:
-    branches: [ main ]
+    branches: [ master ]
 
 jobs:
   test:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ['3.8', '3.9', '3.10', '3.11', '3.12']
+        python-version: ['3.11', '3.12', '3.13']
 
     steps:
     - uses: actions/checkout@v4
-    
+
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
-    
+
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-    
+
     - name: Run tests
       run: |
         python -m unittest test_furby -v
+
+  # The show engine and firmware run on MicroPython on the board. Homebrew has
+  # MicroPython's Unix port, so these tests run for real here instead of skipping.
+  micropython:
+    runs-on: macos-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+    - name: Install MicroPython and dependencies
+      run: |
+        brew install micropython
+        pip install -r requirements.txt mpy-cross
+    - name: Run the MicroPython tests
+      run: python -m unittest -v test_furby.TestHalloween test_furby.TestFirmware
+    - name: Compile the board's files with mpy-cross
+      run: |
+        mpy-cross -o /tmp/furbyshow.mpy furbyshow.py
+        mpy-cross -o /tmp/main.mpy firmware/main.py
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+    - run: pip install ruff
+    - run: ruff check .
+    - run: ruff format --check .
+
+  # Generated audio and DLCs belong in build/, which is gitignored. Cloned
+  # Furby voices and DLCs built from the stock one must never be committed, so
+  # fail if any audio or DLC shows up beyond the files that came with the repo.
+  no-generated-files:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Check for committed audio, DLCs and build output
+      run: |
+        allowed='^(dlc/dlc2/tu003410\.dlc|audio/new_audio/(darkside_wav\.a18|imperial_march-16000_wav\.a18|toccata_in_d_minor_16khz\.wav))$'
+        found=$(git ls-files 'build/*' '*.wav' '*.mp3' '*.m4a' '*.aiff' '*.a18' '*.dlc' | grep -Ev "$allowed" || true)
+        if [ -n "$found" ]; then
+          echo "These generated files shouldn't be committed (keep them in build/):"
+          echo "$found"
+          exit 1
+        fi

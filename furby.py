@@ -24,6 +24,11 @@
 
 import struct
 from PIL import Image as PILImage
+from PIL import GifImagePlugin
+
+# Pillow 9+ decodes every GIF frame after the first as RGBA, which breaks
+# quarterize(): eye cels need palette indexes. Keep shared-palette frames in P mode.
+GifImagePlugin.LOADING_STRATEGY = GifImagePlugin.LoadingStrategy.RGB_AFTER_DIFFERENT_PALETTE_ONLY
 
 class FormatError(Exception):
 	def __init__(self, value):
@@ -322,9 +327,9 @@ class dlc(object):
 				palette_data = p[1]
 				num_colors = len(palette_data) // 3
 				mypalette = [(
-					ord(palette_data[(3*i)]),
-					ord(palette_data[(3*i)+1]),
-					ord(palette_data[(3*i)+2]),
+					palette_data[(3*i)],
+					palette_data[(3*i)+1],
+					palette_data[(3*i)+2],
 					0xff
 				) for i in range(num_colors)]
 			
@@ -333,10 +338,10 @@ class dlc(object):
 				palette_data = p[1]
 				num_colors = len(palette_data) // 4
 				mypalette = [(
-					ord(palette_data[(4*i)]),
-					ord(palette_data[(4*i)+1]),
-					ord(palette_data[(4*i)+2]),
-					0 if (ord(palette_data[(4*i)+3]) == 0) else 0xff
+					palette_data[(4*i)],
+					palette_data[(4*i)+1],
+					palette_data[(4*i)+2],
+					0 if (palette_data[(4*i)+3] == 0) else 0xff
 				) for i in range(num_colors)]
 			else:
 				raise NotImplementedError("Unsure how to handle palettes of type %s" % p[0])
@@ -1026,24 +1031,20 @@ class dlc(object):
 			self.remove_track(tracknumber)
 			self.add_track(trackpath, tracknumber)
 
-		def minify_audio(self, newlength_in=16000):
+		def minify_audio(self, newlength_in=128):
 			"""
 			Minify audio tracks to reduce DLC size for faster testing.
 			
 			Args:
-				newlength_in: Target audio length in bytes (default: 16000 = ~1 second at 16kHz)
-			
-			Note: The default of 16000 bytes (~1 second) is the minimum recommended
-			      to avoid flash errors. Values below 8000 bytes may cause issues.
+				newlength_in: Target audio length in bytes (default: 128, as Context shipped it)
+
+			Note: FurBLE's hacked.dlc, which flashes and plays fine, cuts
+			      every track to 128 bytes. Go that small to fit a DLC
+			      under the ~350 KB that uploads tolerate.
 			"""
-			
+
 			#This always needs to be a multiple of 8.
 			audio_length = ((newlength_in  >> 3 ) << 3)
-			
-			# Ensure minimum safe length to avoid flash errors
-			if audio_length < 8000:
-				print "WARNING: Audio length %d is too small, using 8000 bytes minimum" % audio_length
-				audio_length = 8000
 			
 			sampling_length = 2
 			size_length = 4

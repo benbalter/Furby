@@ -1,0 +1,39 @@
+# SPDX-FileCopyrightText: 2026 Ben Balter
+# SPDX-License-Identifier: MIT
+# Lint config for the files this fork adds. Context's original files
+# (furby.py, demo*.py, minify_dlc.py and the older audioutils scripts) keep
+# their own style, so they're excluded rather than reformatted.
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+extend-exclude = [
+    "build",
+    "furby.py",
+    "demo.py",
+    "demo_toccata.py",
+    "minify_dlc.py",
+    "audioutils/convert.py",
+    "audioutils/convert_mac_linux.py",
+    "audioutils/convert_to_a18.py",
+    "audioutils/extract_audio.py",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "ASYNC"]
+ignore = [
+    "UP031",  # %-formatting matches the rest of the repo
+    "ASYNC230",  # small local files; blocking open() is fine
+    "ASYNC109",  # timeout= parameters are part of the Furby command API
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Runs on MicroPython, which only has asyncio.TimeoutError
+"furbyshow.py" = ["UP041"]
+"firmware/*.py" = ["UP041"]
+# Context's test file predates this config
+"test_furby.py" = ["UP009", "E501", "UP041"]  # its fakes mimic MicroPython too
+
+[tool.ruff.format]
+# Context's test file and Markdown examples keep their original formatting
+exclude = ["test_furby.py", "*.md"]

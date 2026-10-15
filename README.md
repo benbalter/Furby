@@ -7,13 +7,11 @@
 
 **Disclaimer: This script is pretty alpha; use at your own risk. Bad DLCs can make your Furby Connect very unhappy.**
 
-**Python Version: This project requires Python 2.7** as it uses Python 2 syntax. If you encounter syntax errors about `print` statements, ensure you're running Python 2.7.
-
 ### The original blog post can be found [here](https://www.contextis.com/blog/dont-feed-them-after-midnight-reverse-engineering-the-furby-connect)
 
 ## Requirements
 
-This project requires Python 3.8 or later. Install dependencies with:
+This project requires Python 3.11 or later. Install dependencies with:
 
 ```bash
 pip install -r requirements.txt
@@ -215,6 +213,15 @@ The tool will display the original and new file sizes, showing the reduction ach
 
 ## Audio Conversion
 
+The easiest way, on any OS and with no DLL, is `audioutils/encode_a18.py`. It uses ffmpeg and the open-source [a1800_codec](https://github.com/John-K/a1800_codec), which was reverse engineered from GeneralPlus's A1800.DLL:
+
+```bash
+python audioutils/encode_a18.py monster_mash.mp3 monster_mash.a18 --start 0:30 --duration 25
+python spooky_eyes.py --song monster_mash.a18
+```
+
+Audio costs about 2 KB a second, so keep songs short enough for the DLC to stay under about 350 KB. The older DLL-based tools below still work too.
+
 A GitHub Actions workflow and command-line tool are available to convert audio files (MP3 or WAV) to the a18 format required by Furby Connect.
 
 ### Using the CI Workflow
@@ -259,6 +266,39 @@ D.build("./toccata_furby.dlc")
 
 For more details on preparing audio files and advanced multi-track configurations, see the `audio/new_audio/README.md` file and `demo_toccata.py` script.
 
+## Example: Spooky Halloween eyes
+
+`spooky_eyes.py` draws glowing eyes (red demon eyes, or a jack-o'-lantern) and builds them into a DLC with custom audio:
+
+```bash
+python spooky_eyes.py                     # demon eyes + Imperial March
+python spooky_eyes.py --theme pumpkin --song my_song.a18 --sting my_scream.a18
+```
+
+It writes `build/spooky_<theme>.dlc`, plus a `preview.gif` of the eyes in `build/<theme>/`. The eyes play on actions `75-0-4-4` (with the song), `75-0-3-4` (with the sting) and `75-0-0-3`.
+
+The build copies Context's `hacked.dlc`, which [FurBLE](https://github.com/pdjstone/furby-web-bluetooth) ships and which is known to flash: every stock audio track is cut to 128 bytes, and apart from audio the result matches `hacked.dlc` section for section. The script refuses to write anything over about 350 KB, because bigger uploads time out.
+
+To flash, use a FurBLE that can upload your own file. The hosted FurBLE pages only flash their bundled DLCs; [benbalter/furby-web-bluetooth](https://github.com/benbalter/furby-web-bluetooth) adds "Upload Custom". Serve it over http (`npx serve`), since Web Bluetooth won't load DLCs from a `file://` page, and open it in Chrome. Reset the Furby first (hold it upside down, hold the tongue, and pull the tail until the eyes go dark), and upload one DLC per reboot.
+
+A DLC only changes what plays when a phone or computer triggers an action over Bluetooth. The Furby's own reactions to noises, petting and so on come from its built-in memory, so they sound the same with any DLC active. Reset the Furby to remove the DLC.
+
+## Example: A two-Furby Halloween show
+
+`halloween.py` and `porch.py` turn two Furbies into a call-and-response act: an evil Furby with demon eyes and a friendly one with jack-o'-lantern eyes, trading lines like "No feed after midnight..." and "Kah scared!".
+
+1. List each Furby's clips and the scenes that string them together in [`halloween/show.toml`](halloween/show.toml). Clips can be anything ffmpeg reads; `audioutils/freesound_fetch.py` fetches public-domain sound effects, and `audioutils/extract_voice.py` unpacks the Furby's own voice.
+2. Build both DLCs: `python halloween.py` writes `build/halloween/pink.dlc`, `blue.dlc` and `show.json`. Each clip gets its own `75` action, chosen so no two actions share a track.
+3. Flash `pink.dlc` to one Furby and `blue.dlc` to the other (see above). Keep the file names: the show tells the Furbies apart by the name of their active DLC.
+4. Run the show. Both ways use the same show engine, [`furbyshow.py`](furbyshow.py):
+   - **From a computer:** `python porch.py` (needs [bleak](https://github.com/hbldh/bleak)). `python porch.py --clip pink.cackle` plays one clip to test.
+   - **From an ESP32, with no computer:** flash [MicroPython](https://micropython.org/download/) to the board, then run `firmware/deploy.sh` (needs [uv](https://docs.astral.sh/uv/)). It installs [aioble](https://github.com/micropython/micropython-lib/tree/master/micropython/bluetooth/aioble) and copies the show over. The board starts the show on power-up, keeps both Furbies awake, plays a random scene every minute or so, and plays one right away when you press its button. Its LED stays on during a scene and blinks while a Furby is missing. A watchdog reboots it if the show ever hangs. Hold the button while plugging it in to skip the show. After changing the show, reflash both Furbies and run `deploy.sh` again; the show warns if a Furby's DLC doesn't match.
+
+## License
+
+Files marked `SPDX-License-Identifier: MIT` (the Halloween show, the firmware, and the audio tools in `audioutils/` that carry that header) are available under the [MIT License](LICENSES/MIT.txt). The rest of the repository comes from [Context's original project](https://github.com/ctxis/Furby), which doesn't state a license, so those files stay under Context's terms. Hasbro owns the Furby name and the stock DLC, audio and artwork included here.
+
+Generated audio and DLCs live in `build/`, which git ignores. Don't commit or publish voice clips cloned from the Furby, or DLCs built from the stock one.
 
 ## Contributing
 

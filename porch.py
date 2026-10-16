@@ -12,7 +12,8 @@ connection alive so the Furby stays awake, and every so often plays a random
 scene from show.json, which halloween.py writes.
 
 USAGE:
-    python porch.py                       # run the show (build/halloween/show.json)
+    python porch.py                       # run the show (build/halloween/show.json);
+                                          # press Enter to play a greeting
     python porch.py --scene 0             # play one scene now, then exit
     python porch.py --clip pink.cackle    # play one clip now, then exit
     python porch.py --list                # list Furbies in range and their DLCs
@@ -30,7 +31,9 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
+import threading
 
 import furbyshow
 
@@ -144,6 +147,19 @@ async def rehearse(plan, args):
             await asyncio.sleep(2)  # a short pause instead of the show's minute or so
 
 
+def greet_on_enter(show):
+    """Press Enter to play a greeting, like the board's button."""
+    loop = asyncio.get_running_loop()
+
+    def read():
+        for _ in sys.stdin:
+            loop.call_soon_threadsafe(show.trigger)
+
+    # A daemon thread, so a blocked read doesn't stop Ctrl-C from ending the show
+    threading.Thread(target=read, daemon=True).start()
+    print("Press Enter to play a greeting when someone arrives.")
+
+
 async def main(args):
     with open(args.show) as f:
         plan = json.load(f)
@@ -158,11 +174,12 @@ async def main(args):
     if args.scene is not None or args.clip:
         await show.connect_missing()
         steps = [args.clip] if args.clip else plan["scenes"][args.scene]
-        missing = sorted({step.split(".")[0] for step in steps} - show.present())
+        missing = sorted({p.split(".")[0] for step in steps for p in furbyshow.step_parts(step)} - show.present())
         if missing:
             raise SystemExit("Not connected: %s. Is it awake, nearby and free of FurBLE?" % ", ".join(missing))
         await (show.play_step(args.clip) if args.clip else show.play_scene(plan["scenes"][args.scene]))
         return
+    greet_on_enter(show)
     await show.run()
 
 

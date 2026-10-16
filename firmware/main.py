@@ -6,7 +6,8 @@ Run the Halloween show from an ESP32 (MicroPython), with no computer.
 The same show engine as porch.py (furbyshow.py), over aioble, MicroPython's
 Bluetooth library. On power-up it finds both Furbies, tells them apart by
 their active DLC, keeps them awake and plays a scene every so often. The
-board's button plays one right away, and its LED lights during scenes
+board's button, or a motion sensor if you wire one (PIR_PIN below), plays a
+greeting right away, and its LED lights during scenes
 (blinking while it waits for a Furby). Wi-Fi stays off.
 
 Safe boot: hold the button while plugging the board in to skip the show and
@@ -28,6 +29,10 @@ import furbyshow
 
 BUTTON_PIN = 47  # the FireBeetle 2 ESP32-S3's onboard button
 LED_PIN = 21  # and its onboard LED
+# A PIR motion sensor (e.g. an HC-SR501) plays a greeting when someone walks
+# up. Wire its output to a free GPIO and put the pin number here; None leaves
+# it off. The sensor drives the pin high on motion, so it needs no pull-up.
+PIR_PIN = None
 WATCHDOG_MS = 120_000  # reboot if not fed for this long
 STALL_MS = 300_000  # stop feeding the watchdog if the show makes no progress for this long
 SERVICE = bluetooth.UUID(furbyshow.GP_SERVICE)
@@ -118,6 +123,9 @@ async def main(plan_path="show.json"):
     button = machine.Pin(BUTTON_PIN, machine.Pin.IN, machine.Pin.PULL_UP)
     # ThreadSafeFlag is safe to set from an interrupt and wakes the show at once.
     button.irq(lambda _: show.trigger(), machine.Pin.IRQ_FALLING)
+    if PIR_PIN is not None:
+        pir = machine.Pin(PIR_PIN, machine.Pin.IN)
+        pir.irq(lambda _: show.trigger(sensor=True), machine.Pin.IRQ_RISING)
     asyncio.create_task(watchdog(show, machine.WDT(timeout=WATCHDOG_MS)))
     asyncio.create_task(status_light(show, machine.Pin(LED_PIN, machine.Pin.OUT)))
     await show.run()

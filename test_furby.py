@@ -242,18 +242,22 @@ class TestHalloween(unittest.TestCase):
         import spooky_eyes
         clip = "./audio/new_audio/darkside_wav.a18"
         show = {
-            "show": {"gap": 0.5, "every": [30, 60]},
+            "show": {"gap": 0.5, "every": [30, 60], "cooldown": 20},
             "furbies": {
                 "pink": {"theme": "demon", "clips": {"a": clip, "b": "./audio/new_audio/imperial_march-16000_wav.a18"}},
-                "blue": {"theme": "pumpkin", "clips": {"c": clip, "gone": "./no/such/clip.wav"}},
+                "blue": {"theme": "pumpkin", "clips": {"c": {"path": clip, "before": 1.0}, "gone": "./no/such/clip.wav"}},
             },
-            "scenes": [{"steps": ["pink.a", "blue.c"]}, {"steps": ["blue.gone"]}],
+            "scenes": [{"steps": ["pink.a", "blue.c"], "greeting": True}, {"steps": ["blue.gone"], "greeting": True}],
         }
         with self.assertRaises(SystemExit):
             halloween.build_show(show, self.temp_dir)
         with open(halloween.build_show(show, self.temp_dir, skip_missing=True)) as f:
             plan = json.load(f)
         self.assertEqual(plan["scenes"], [["pink.a", "blue.c"]])
+        self.assertEqual(plan["greetings"], [["pink.a", "blue.c"]])  # only playable ones
+        self.assertEqual(plan["cooldown"], 20)
+        self.assertEqual(plan["furbies"]["blue"]["clips"]["c"]["before"], 1.0)
+        self.assertNotIn("before", plan["furbies"]["pink"]["clips"]["a"])
         for name in ("pink", "blue"):
             D = dlc(os.path.join(self.temp_dir, "%s.dlc" % name))
             self.assertLess(os.path.getsize(os.path.join(self.temp_dir, "%s.dlc" % name)), spooky_eyes.MAX_UPLOAD)
@@ -269,6 +273,130 @@ class TestHalloween(unittest.TestCase):
         import zlib
         with open(os.path.join(self.temp_dir, "pink.dlc"), "rb") as f:
             self.assertEqual(plan["furbies"]["pink"]["checksum"], zlib.adler32(f.read()))
+
+    @unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg not installed")
+    def test_snippets_and_optional_clips(self):
+        """A clip table cuts a snippet; an optional clip that's missing just drops its scenes"""
+        import json
+
+        import halloween
+        song = {"path": "./audio/new_audio/toccata_in_d_minor_16khz.wav", "start": "0:02", "seconds": 3}
+        show = {
+            "show": {"gap": 0.5, "every": [30, 60]},
+            "furbies": {
+                "pink": {"theme": "demon", "clips": {"song": song,
+                                                     "extra": {"path": "./no/such.mp3", "optional": True}}},
+                "blue": {"theme": "pumpkin", "clips": {"song": song}},
+            },
+            "scenes": [{"steps": ["pink.song + blue.song"]}, {"steps": ["pink.extra"]}],
+        }
+        with open(halloween.build_show(show, self.temp_dir)) as f:  # no --skip-missing needed
+            plan = json.load(f)
+        self.assertEqual(plan["scenes"], [["pink.song + blue.song"]])
+        info = plan["furbies"]["pink"]["clips"]["song"]
+        self.assertAlmostEqual(info["seconds"], 3, delta=0.1)
+        self.assertTrue(info["source"].endswith("song.wav"))  # rehearsals play the snippet, not the whole file
+        self.assertTrue(os.path.exists(info["source"]))
+        self.assertNotIn("extra", plan["furbies"]["pink"]["clips"])
+
+    def test_duet(self):
+        """A "+" step lights and triggers both Furbies before waiting for the longer clip"""
+        import asyncio
+
+        import furbyshow
+        events = []
+
+        class F(furbyshow.Furby):
+            def connected(self):
+                return True
+
+            async def _write(self, data):
+                events.append((self.name, data[0]))
+
+        async def sleep(seconds):
+            events.append(("sleep", seconds))
+
+        plan = {
+            "gap": 0.5, "every": [1, 2], "scenes": [],
+            "furbies": {
+                "pink": {"antenna": [255, 0, 0], "clips": {"a": {"action": [75, 0, 0, 2], "seconds": 3.0}}},
+                "blue": {"antenna": [255, 100, 0], "clips": {"a": {"action": [75, 0, 0, 2], "seconds": 5.0}}},
+            },
+        }
+        show = furbyshow.Show(plan, None, sleep=sleep, log=lambda *_: None)
+        for name in ("pink", "blue"):
+            show.furbies[name] = F(name)
+            show.furbies[name].name = name
+        asyncio.run(show.play_step("pink.a + blue.a"))
+        self.assertEqual(events, [
+            ("pink", 0x14), ("blue", 0x14), ("pink", 0x13), ("blue", 0x13),
+            ("sleep", 5.0), ("pink", 0x14), ("blue", 0x14), ("sleep", 0.5),
+        ])
+        self.assertEqual(furbyshow.pick_scene([["pink.a + blue.a"]], {"pink"}), None)
+        # A clip's "before" holds a beat ahead of the line, before its antenna lights
+        events.clear()
+        plan["furbies"]["pink"]["clips"]["a"]["before"] = 1.0
+        asyncio.run(show.play_step("pink.a"))
+        self.assertEqual(events[:2], [("sleep", 1.0), ("pink", 0x14)])
+
+    def test_greetings_and_cooldown(self):
+        """A trigger plays a greeting and the timer the rest; only the sensor waits out a cooldown"""
+        import asyncio
+
+        import furbyshow
+        sent = []
+
+        class F(furbyshow.Furby):
+            def connected(self):
+                return True
+
+            async def _write(self, data):
+                sent.append(data)
+
+        async def sleep(seconds):
+            pass
+
+        plan = {
+            "gap": 0, "every": [1, 2], "cooldown": 10,
+            "scenes": [["pink.a"], ["pink.b"]], "greetings": [["pink.b"]],
+            "furbies": {"pink": {"clips": {"a": {"action": [75, 0, 0, 2], "seconds": 1.0},
+                                           "b": {"action": [75, 0, 4, 4], "seconds": 1.0}}}},
+        }
+        show = furbyshow.Show(plan, None, sleep=sleep, log=lambda *_: None)
+        show.furbies["pink"] = F("aa")
+        self.assertEqual(show.scenes(), [["pink.a"]])
+        self.assertEqual(show.scenes(greeting=True), [["pink.b"]])
+
+        async def press(sensor=False):
+            await asyncio.sleep(0.02)
+            show.trigger(sensor=sensor)
+
+        async def run():
+            await show.run_once()
+            self.assertEqual(sent[-1], furbyshow.trigger_command((75, 0, 0, 2)))
+            self.assertIsNone(show.greeted)  # a timer scene doesn't start the cooldown
+            asyncio.create_task(press(sensor=True))
+            self.assertTrue(await show.wait(5))
+            await show.run_once(greeting=True)
+            self.assertEqual(sent[-1], furbyshow.trigger_command((75, 0, 4, 4)))
+            # A greeting just played, so motion is ignored and the wait runs out...
+            asyncio.create_task(press(sensor=True))
+            self.assertFalse(await show.wait(0.2))
+            # ...but a button press always counts
+            asyncio.create_task(press())
+            self.assertTrue(await show.wait(5))
+            # Once the cooldown has passed, motion counts again
+            show.greeted -= 10_000
+            asyncio.create_task(press(sensor=True))
+            self.assertTrue(await show.wait(5))
+            # Someone who arrived during a scene is greeted as soon as it ends
+            show.trigger()
+            self.assertTrue(await show.wait(5))
+
+        asyncio.run(run())
+        # With no greetings, a trigger plays any scene
+        del plan["greetings"]
+        self.assertEqual(show.scenes(greeting=True), plan["scenes"])
 
     def test_show_parsing(self):
         """furbyshow reads FurBLE's responses and picks playable scenes"""
@@ -451,13 +579,14 @@ class TestFirmware(unittest.TestCase):
 
         test = self
         self.pins = {}
+        self.irqs = {}  # pin number → the edge its interrupt fires on
         self.feeds = 0
         # DLC name each fake Furby reports; None means no active DLC
         self.furbies = {"aa": b"PINK", "bb": None}
         self.disconnected = []
 
         class Pin:
-            IN, OUT, PULL_UP, IRQ_FALLING = 0, 1, 2, 3
+            IN, OUT, PULL_UP, IRQ_FALLING, IRQ_RISING = 0, 1, 2, 3, 4
 
             def __init__(self, number, mode=None, pull=None):
                 self.number, self.level = number, test.pins.get(number, 1)
@@ -469,6 +598,7 @@ class TestFirmware(unittest.TestCase):
 
             def irq(self, handler, trigger):
                 self.handler = handler
+                test.irqs[self.number] = trigger
 
         class WDT:
             def __init__(self, timeout):
@@ -591,6 +721,29 @@ class TestFirmware(unittest.TestCase):
         self.assertFalse(self.main.safe_boot())
         self.pins[self.main.BUTTON_PIN] = 0
         self.assertTrue(self.main.safe_boot())
+
+    def test_motion_sensor(self):
+        """The button always triggers the show; a PIR sensor does too once PIR_PIN is set"""
+        import asyncio
+        import json
+        import tempfile
+        from unittest import mock
+
+        plan = os.path.join(tempfile.mkdtemp(), "show.json")
+        with open(plan, "w") as f:
+            json.dump({"gap": 0, "every": [1, 2], "scenes": [], "furbies": {}}, f)
+
+        async def run(show):
+            pass
+
+        # CPython has no ThreadSafeFlag; an Event stands in for it
+        with mock.patch.object(self.main.furbyshow.Show, "run", run), \
+                mock.patch.object(asyncio, "ThreadSafeFlag", asyncio.Event, create=True):
+            asyncio.run(self.main.main(plan))
+            self.assertEqual(self.irqs, {self.main.BUTTON_PIN: self.main.machine.Pin.IRQ_FALLING})
+            self.main.PIR_PIN = 5
+            asyncio.run(self.main.main(plan))
+            self.assertEqual(self.irqs[5], self.main.machine.Pin.IRQ_RISING)
 
     def test_watchdog(self):
         """The watchdog is fed while the show makes progress, and starved once it stalls"""

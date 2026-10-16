@@ -8,7 +8,8 @@
 
 [show]
 gap = 0.6           # seconds between one line ending and the next starting
-every = [40, 100]   # seconds between scenes, picked at random in this range
+every = [20, 45]    # seconds between scenes, picked at random in this range
+cooldown = 20       # seconds after a scene when the button or motion sensor is ignored
 
 # Pink is the evil Furby: demon eyes, scary lines.
 [furbies.pink]
@@ -18,49 +19,95 @@ antenna = [255, 0, 0]  # antenna color while it speaks (red, green, blue)
 [furbies.pink.clips]
 cackle = "build/sfx/witch-cackle-0.wav"
 cackle2 = "build/sfx/witch-cackle-1.wav"
-laugh = "build/sfx/evil-laugh-0.wav"
 scream = "build/sfx/scream-0.wav"
 moan = "build/sfx/ghost-moan-0.wav"
-midnight = "build/cloned/pink_midnight.wav"
+midnight = "build/cloned/pink_dontfeed.wav"
 boo = "build/cloned/pink_boo.wav"
-candy = "build/cloned/pink_candy.wav"
+dare = "build/cloned/pink_dare.wav"
 watching = "build/cloned/pink_watching.wav"
+yourcandy = { path = "build/cloned/pink_yourcandy.wav", before = 0.4 }
+trick = { path = "build/cloned/pink_trick.wav", before = 0.4 }
 scariest = "build/cloned/pink_laugh.wav"
+# Music: a clip can be a table that cuts a snippet. Audio costs about 2 KB a
+# second, and each DLC must stay under about 350 KB. The opening bars are
+# enough to recognize, and a Furby's speaker doesn't do music any favors.
+toccata = { path = "audio/new_audio/toccata_in_d_minor_16khz.wav", seconds = 5 }
+# The Ghostbusters theme is copyrighted, so it isn't in the repo: put your own
+# copy at this path (any format ffmpeg reads). Until then, its scenes are skipped.
+# "before" holds a beat after "Who you gonna call?" for the kids to shout it:
+# 0.6 + 1.4 = 2 seconds, since a group is slow to start a shout.
+ghostbusters = { path = "build/music/ghostbusters.mp3", start = "0:11", seconds = 6, before = 1.4, optional = true }
 
-# Blue is the good Furby: jack-o'-lantern eyes, friendly lines.
+# Blue is the good Furby: jack-o'-lantern eyes, friendly lines that undercut pink.
 [furbies.blue]
 theme = "pumpkin"
 antenna = [255, 100, 0]
 
 [furbies.blue.clips]
-trick = "build/cloned/blue_trick.wav"
+takeone = "build/cloned/blue_takeone.wav"
 happy = "build/cloned/blue_happy.wav"
 what = "build/cloned/blue_what.wav"
 scared = "build/cloned/blue_scared.wav"
 thanks = "build/cloned/blue_thanks.wav"
 door = "build/sfx/creaky-door-0.wav"
+whocall = "build/cloned/blue_whocall.wav"
+song = "build/cloned/blue_song.wav"
+halloween = "build/cloned/blue_halloween.wav"
+trickortreat = "build/cloned/blue_trickortreat.wav"
+# Punchlines wait a little longer than the usual gap: 0.6 + 0.4 = 1 second.
+gotcha = { path = "build/cloned/blue_gotcha.wav", before = 0.4 }
+hi = { path = "build/cloned/blue_hi.wav", before = 0.4 }
+hascandy = { path = "build/cloned/blue_hascandy.wav", before = 0.4 }
+ghostbusters = { path = "build/music/ghostbusters.mp3", start = "0:11", seconds = 6, before = 1.4, optional = true }
 
-# Each scene plays its steps in order: "<furby>.<clip>".
+# Each scene plays its steps in order: "<furby>.<clip>". Join clips with "+"
+# to play them on both Furbies at once, e.g. a duet.
+#
+# greeting = true saves a scene for when someone arrives: the button or motion
+# sensor plays one of these, and the timer plays the rest.
+[[scenes]]
+greeting = true
+steps = ["blue.takeone", "pink.dare"]
+
+[[scenes]]
+greeting = true
+steps = ["blue.happy", "pink.boo"]  # ends on a question, so the kids answer it
+
+[[scenes]]
+greeting = true
+steps = ["blue.thanks", "pink.scariest", "blue.hascandy"]
+
+[[scenes]]
+greeting = true
+steps = ["blue.trickortreat", "pink.trick"]
+
+# Call and response only works when someone's there to shout back
+[[scenes]]
+greeting = true
+steps = ["blue.whocall", "pink.ghostbusters + blue.ghostbusters"]
+
 [[scenes]]
 steps = ["pink.cackle", "blue.what"]
-
-[[scenes]]
-steps = ["blue.trick", "pink.candy"]
 
 [[scenes]]
 steps = ["pink.midnight", "blue.scared"]
 
 [[scenes]]
-steps = ["blue.happy", "pink.boo", "blue.scared"]
+steps = ["blue.door", "pink.scream", "blue.gotcha"]
 
 [[scenes]]
-steps = ["blue.door", "pink.scream", "blue.what"]
+steps = ["pink.watching", "blue.hi"]
+
+# Pure atmosphere, no punchline
+[[scenes]]
+steps = ["pink.moan", "pink.cackle2"]
 
 [[scenes]]
-steps = ["pink.watching", "pink.laugh"]
+steps = ["pink.toccata", "blue.song"]
+
+# Pink finally lands one
+[[scenes]]
+steps = ["blue.halloween", "pink.yourcandy"]
 
 [[scenes]]
-steps = ["blue.thanks", "pink.scariest"]
-
-[[scenes]]
-steps = ["pink.moan", "pink.cackle2", "blue.scared"]
+steps = ["blue.door", "pink.cackle", "blue.gotcha"]

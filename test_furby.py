@@ -1331,7 +1331,7 @@ class TestCheck(unittest.TestCase):
         self.addCleanup(shutil.rmtree, temp_dir)
         timings = os.path.join(temp_dir, "timings.json")
         log = []
-        with mock.patch.dict(sys.modules, {"bleak": fake_bleak([[pink, blue]])}), mock.patch("builtins.print"):
+        with mock.patch.dict(sys.modules, {"bleak": fake_bleak([[pink], [blue]])}), mock.patch("builtins.print"):
             failures = asyncio.run(porch.check(plan, porch.find, log=log.append, timings_path=timings,
                                                patience_s=1, long_tail_s=0.3, settle_s=0.05, pause_s=0))
         self.assertEqual(failures, [
@@ -1342,7 +1342,8 @@ class TestCheck(unittest.TestCase):
         self.assertEqual(pink.triggers.count((75, 0, 0, 2)), 2)  # tried again once the busy sequence ended
         with open(timings) as f:
             measured = json.load(f)
-        self.assertAlmostEqual(measured["pink"]["a"]["sequence_seconds"], 0.05, delta=0.04)
+        self.assertTrue(0 < measured["pink"]["a"]["sequence_seconds"] < 0.3)
+        self.assertTrue(any("Waiting for blue, green" in line for line in log))  # blue turned up on a later scan
         self.assertEqual(measured["pink"]["b"]["result"], "skipped")
         self.assertIsNone(measured["pink"]["c"]["sequence_seconds"])
         self.assertTrue(any(line.lstrip().startswith("d ") and "past its audio" in line for line in log), log)

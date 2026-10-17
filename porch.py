@@ -186,14 +186,21 @@ async def check_clip(furby, action, patience_s, attempts=2):
 
 
 async def check(plan, find, log=print, timings_path=None, patience_s=furbyshow.PLAY_PATIENCE_MS / 1000,
-                long_tail_s=3, settle_s=3, pause_s=0.5):  # fmt: skip
+                long_tail_s=3, settle_s=3, pause_s=0.5, find_passes=3):  # fmt: skip
     """Play every clip once on each Furby and report what the Furby says happened; returns the failures.
 
     A sequence that runs long_tail_s or more past its clip is flagged but not
     a failure: the next line on that Furby just waits for it (see Furby.play()).
     """
     show = furbyshow.Show(plan, find, log=lambda line: None if line.startswith("Connected") else log(line))
-    await show.connect_missing()
+    # Identical Furbies that see each other pair up and stop advertising, so give them a few scans to turn up
+    for attempt in range(find_passes):
+        await show.connect_missing()
+        missing = sorted(set(plan["furbies"]) - show.present())
+        if not missing:
+            break
+        if attempt < find_passes - 1:
+            log("Waiting for %s: wake it now (one at a time works best)." % ", ".join(missing))
     failures, timings = [], {}
     for name, spec in plan["furbies"].items():
         furby = show.furbies.get(name)

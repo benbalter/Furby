@@ -28,6 +28,7 @@ import json
 import os
 import subprocess
 import sys
+import threading
 import zlib
 
 import flash
@@ -79,8 +80,25 @@ class Deployer:
         self.results = {}  # name → what happened, for the summary
 
     async def question(self, prompt):
-        # In a thread, so the Furby's keepalive carries on while someone reads the prompt
-        return (await asyncio.to_thread(self.ask, prompt)).strip().lower()
+        """Ask without blocking, so the Furby's keepalive carries on while someone reads the prompt."""
+        loop = asyncio.get_running_loop()
+        answer = loop.create_future()
+
+        def settle(result, error):
+            if not answer.done():
+                answer.set_exception(error) if error else answer.set_result(result)
+
+        def read():
+            try:
+                loop.call_soon_threadsafe(settle, self.ask(prompt), None)
+            except EOFError:
+                loop.call_soon_threadsafe(settle, None, DeployError("No one to answer; pass --yes to run unattended."))
+            except Exception as e:
+                loop.call_soon_threadsafe(settle, None, e)
+
+        # A daemon thread, not asyncio.to_thread: a blocked input() there would stop Ctrl-C from exiting
+        threading.Thread(target=read, daemon=True).start()
+        return (await answer).strip().lower()
 
     async def confirm(self, prompt):
         return not self.yes and (await self.question(prompt + " [y/N] ")).startswith("y")
@@ -282,7 +300,7 @@ def main(args, ask=input, log=print, scan=flash.scan, connect=connect, run=subpr
     log("\nAll done:")
     for name, result in results.items():
         log("  %-6s %s" % (name, result))
-    log("Next, wake both Furbies and test every clip: uv run porch.py --check")
+    log("Next, test every clip: run uv run porch.py --check, then wake one Furby, and the other once it connects.")
     return results
 
 

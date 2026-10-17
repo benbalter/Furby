@@ -1,0 +1,380 @@
+<!doctype html>
+<!--
+  SPDX-FileCopyrightText: 2026 Ben Balter
+  SPDX-License-Identifier: MIT
+
+  The virtual porch: preview.py copies this to build/preview/index.html beside
+  data.js, audio/ and eyes/, which it writes from the built show.
+
+  DON'T PUBLISH THE BUILT PAGE. Its audio is decoded from DLCs built on
+  Hasbro's, so build/preview/ stays on this computer: never commit it, host it
+  or share it. This template holds no Hasbro material and is fine to commit.
+
+  Everything it plays comes from data.js, which preview.py writes by running
+  the real show engine on emulate.py's virtual Furbies, so this file only
+  replays events. Don't reimplement timing or light effects here.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Virtual Porch</title>
+<style>
+  :root {
+    --bg: #0d0b14; --panel: #1a1626; --ink: #ece7f5; --muted: #a59cb8; --line: #332c45;
+    --accent: #ff8a1f; --accent-ink: #1a0d00; --warn: #ffcc66;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: radial-gradient(ellipse at top, #241b38 0%, var(--bg) 60%) fixed, var(--bg);
+    color: var(--ink); font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main { max-width: 1040px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: 1.6rem; margin: 0 0 4px; letter-spacing: .01em; }
+  .sub { color: var(--muted); margin: 0 0 20px; }
+  .porch { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 16px;
+    padding: 16px; display: flex; flex-direction: column; align-items: center; gap: 8px;
+  }
+  .card h2 { margin: 0; font-size: 1.15rem; text-transform: capitalize; }
+  .stage { position: relative; width: 240px; height: 300px; }
+  .antenna { position: absolute; left: 50%; top: 0; width: 4px; height: 46px; margin-left: -2px; background: #555; border-radius: 2px; }
+  .bulb {
+    position: absolute; left: 50%; top: -8px; width: 22px; height: 22px; margin-left: -11px; border-radius: 50%;
+    background: #222; border: 2px solid #444; transition: background-color 60ms linear, box-shadow 60ms linear;
+  }
+  .body {
+    position: absolute; left: 20px; top: 40px; width: 200px; height: 240px; border-radius: 48% 48% 44% 44%;
+    background: var(--fur, #888);
+    background-image: radial-gradient(ellipse at 50% 30%, rgba(255,255,255,.22), transparent 60%),
+      repeating-linear-gradient(100deg, rgba(0,0,0,.07) 0 3px, transparent 3px 7px);
+    box-shadow: inset 0 -18px 30px rgba(0,0,0,.35);
+    transform-origin: 50% 100%;
+  }
+  .ear { position: absolute; top: -26px; width: 56px; height: 80px; background: inherit; border-radius: 60% 60% 30% 30%; }
+  .ear.l { left: -14px; transform: rotate(-28deg); }
+  .ear.r { right: -14px; transform: rotate(28deg); }
+  .face { position: absolute; left: 22px; top: 44px; width: 156px; height: 150px; border-radius: 46%; background: rgba(255,255,255,.18); }
+  .eyes { position: absolute; left: 12px; top: 18px; display: flex; gap: 8px; }
+  .eye {
+    width: 62px; height: 62px; border-radius: 50%; background: #000; image-rendering: pixelated;
+    border: 3px solid rgba(0,0,0,.55);
+  }
+  .beak { position: absolute; left: 58px; top: 92px; width: 40px; height: 30px; background: #f2a93b; border-radius: 40% 40% 60% 60%; }
+  .belly { position: absolute; left: 50px; top: 168px; width: 100px; height: 60px; border-radius: 50%; background: rgba(255,255,255,.14); }
+  .moving .body { animation: wiggle .42s ease-in-out infinite; }
+  @keyframes wiggle {
+    0%, 100% { transform: rotate(0) translateY(0); }
+    25% { transform: rotate(-4deg) translateY(-6px); }
+    75% { transform: rotate(4deg) translateY(-3px); }
+  }
+  @media (prefers-reduced-motion: reduce) { .moving .body { animation: none; outline: 3px dashed var(--accent); outline-offset: 4px; } }
+  .now { min-height: 1.5em; font-weight: 600; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .meta { min-height: 2.9em; color: var(--muted); font-size: .85rem; text-align: center; }
+  .warn { color: var(--warn); font-size: .82rem; align-self: stretch; }
+  .warn summary { cursor: pointer; }
+  .controls {
+    margin: 20px 0 12px; display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 12px;
+  }
+  button, select {
+    font: inherit; color: var(--ink); background: #2a2340; border: 1px solid #4a3f66; border-radius: 10px; padding: 8px 12px; cursor: pointer;
+  }
+  button:hover, select:hover { border-color: #7b6aa8; }
+  button:focus-visible, select:focus-visible, input:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+  button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 700; }
+  button[aria-pressed="true"] { background: #4a3f66; }
+  select { max-width: 100%; }
+  fieldset { border: 0; padding: 0; margin: 0 0 0 auto; display: flex; gap: 10px; align-items: center; color: var(--muted); }
+  .status { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; margin: 0 0 8px; }
+  .log {
+    background: #0a0910; border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; height: 220px; overflow-y: auto;
+    font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; color: #cfc6e2; margin: 0; list-style: none;
+  }
+  .log .t { color: var(--muted); }
+  .log .busy { color: var(--warn); }
+  .notes { color: var(--muted); font-size: .85rem; margin-top: 20px; }
+  .notes h2 { font-size: 1rem; color: var(--ink); }
+  .notes li { margin-bottom: 4px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Virtual porch</h1>
+  <p class="sub">Both Furbies, playing the built show the way it runs on the night. Built by <code>preview.py</code>; keep it on this computer.</p>
+
+  <section class="porch" id="porch" aria-label="Furbies"></section>
+
+  <section class="controls" aria-label="Show controls">
+    <button class="primary" id="door" type="button">Someone's at the door!</button>
+    <label for="scene" class="sr-only" style="position:absolute;left:-9999px">Scene</label>
+    <select id="scene"></select>
+    <button id="play" type="button">Play scene</button>
+    <button id="all" type="button">Play all</button>
+    <button id="random" type="button" aria-pressed="false">Random show</button>
+    <button id="stop" type="button">Stop</button>
+    <fieldset>
+      <legend style="position:absolute;left:-9999px">Movement timing</legend>
+      <label><input type="radio" name="mode" value="typical" checked> Typical</label>
+      <label><input type="radio" name="mode" value="worst"> Worst case</label>
+    </fieldset>
+  </section>
+  <p class="status" id="status" aria-live="polite">Press a button to start. Your browser needs that click before it plays sound.</p>
+  <ol class="log" id="log" aria-label="What played" aria-live="polite"></ol>
+
+  <section class="notes">
+    <h2>What's measured and what's modelled</h2>
+    <ul>
+      <li><strong>Sound</strong> is the audio stored in each built DLC for the clip's action, decoded with the same A1800 codec, so it's Furby quality.</li>
+      <li><strong>Timing and busy waits</strong> come from running the real show engine against <code>emulate.py</code>'s virtual Furbies. A sequence lasts as long as its audio, its delay words or its body movement. Movements have only been timed as ranges: <em>Typical</em> takes the short end and <em>Worst case</em> the long end. Delay-word units are an assumption.</li>
+      <li><strong>Antenna colours</strong> are the exact commands the engine sends, at the times it sends them.</li>
+      <li><strong>Eyes</strong> are a model: <code>eyecheck.compose()</code>'s reading of how the firmware draws the DLC's eye animations, at a guessed frame rate. Custom eyes are still being debugged on real hardware (left and right eyes that share cels come out garbled), so the real Furby may differ. Between lines the page draws a stand-in for the Furby's built-in eyes.</li>
+      <li><strong>Movement</strong> is a wiggle for as long as the sequence keeps the Furby busy, not a picture of the real motor routine.</li>
+      <li>The timer waits a random <span id="every"></span> s between scenes on the night. <em>Play all</em> and <em>Random show</em> wait only a few seconds.</li>
+    </ul>
+  </section>
+</main>
+<script src="data.js"></script>
+<script>
+"use strict";
+const P = window.PREVIEW;
+const PAUSE_MS = 3000; // between scenes here, instead of the show's 20 s or more
+const $ = (id) => document.getElementById(id);
+const OFF = [0, 0, 0];
+const furbies = {};
+let mode = "typical", run = null, lastScene = null, greetingPending = false, logStart = performance.now();
+
+function rgb(c) { return "rgb(" + c.join(",") + ")"; }
+
+function log(text, cls) {
+  const li = document.createElement("li");
+  if (cls) li.className = cls;
+  const t = document.createElement("span");
+  t.className = "t";
+  t.textContent = ((performance.now() - logStart) / 1000).toFixed(1).padStart(6) + "s  ";
+  li.append(t, text);
+  $("log").append(li);
+  $("log").scrollTop = $("log").scrollHeight;
+}
+
+// ---- the Furbies --------------------------------------------------------------
+
+function setAntenna(f, c) {
+  const lit = c.some((v) => v > 0);
+  f.bulb.style.backgroundColor = lit ? rgb(c) : "#222";
+  f.bulb.style.boxShadow = lit ? "0 0 18px 6px " + rgb(c) + ", 0 0 40px 12px rgba(" + c.join(",") + ",.35)" : "none";
+}
+
+function makeFurby(name, info) {
+  const card = document.createElement("article");
+  card.className = "card";
+  card.setAttribute("aria-label", name + " Furby");
+  card.innerHTML =
+    '<h2></h2><div class="stage"><div class="body"><div class="ear l"></div><div class="ear r"></div>' +
+    '<div class="face"><div class="eyes"><canvas class="eye" width="' + P.size + '" height="' + P.size + '" aria-label="right eye"></canvas>' +
+    '<canvas class="eye" width="' + P.size + '" height="' + P.size + '" aria-label="left eye"></canvas></div>' +
+    '<div class="beak"></div></div><div class="belly"></div></div><div class="antenna"></div><div class="bulb"></div></div>' +
+    '<div class="now" aria-live="polite">&nbsp;</div><div class="meta"></div>';
+  card.querySelector("h2").textContent = name;
+  const antenna = info.antenna || [140, 140, 140];
+  const fur = CSS.supports("color", name) ? "color-mix(in oklab, " + name + " 70%, #9a8fb0)" : rgb(antenna);
+  card.querySelector(".body").style.setProperty("--fur", fur);
+  if (info.warnings.length) {
+    const d = document.createElement("details");
+    d.className = "warn";
+    d.innerHTML = "<summary>eyecheck: the real Furby may not show these eyes</summary><ul></ul>";
+    for (const w of info.warnings) { const li = document.createElement("li"); li.textContent = w; d.querySelector("ul").append(li); }
+    card.append(d);
+  }
+  $("porch").append(card);
+  const sprites = {};
+  for (const [word, s] of Object.entries(info.sprites)) { const im = new Image(); im.src = s.src; sprites[word] = { im, frames: s.frames }; }
+  const audio = {};
+  for (const [clip, c] of Object.entries(info.clips)) { audio[clip] = new Audio(c.audio); audio[clip].preload = "auto"; }
+  const f = {
+    name, info, card, sprites, audio, seq: null, blinkAt: performance.now() + 2000 + Math.random() * 3000,
+    eyes: [...card.querySelectorAll("canvas")].map((c) => c.getContext("2d")),
+    bulb: card.querySelector(".bulb"), now: card.querySelector(".now"), meta: card.querySelector(".meta"),
+  };
+  f.eyes.forEach((g) => (g.imageSmoothingEnabled = false));
+  setAntenna(f, OFF);
+  furbies[name] = f;
+}
+
+// A stand-in for the built-in eyes between lines (the real ones live in the Furby's memory, not the DLC)
+function idleEye(g, t, f) {
+  const s = P.size;
+  g.fillStyle = "#000"; g.fillRect(0, 0, s, s);
+  if (t > f.blinkAt && t < f.blinkAt + 140) {
+    g.fillStyle = "#3aa7ff"; g.fillRect(16, s / 2 - 4, s - 32, 8);
+    return;
+  }
+  if (t >= f.blinkAt + 140) f.blinkAt = t + 2500 + Math.random() * 4000;
+  const look = Math.sin(t / 1700) * 10;
+  g.fillStyle = "#1f5fbf"; g.beginPath(); g.arc(s / 2 + look, s / 2, 44, 0, 2 * Math.PI); g.fill();
+  g.fillStyle = "#6fd0ff"; g.beginPath(); g.arc(s / 2 + look, s / 2, 30, 0, 2 * Math.PI); g.fill();
+  g.fillStyle = "#000"; g.beginPath(); g.arc(s / 2 + look, s / 2, 16, 0, 2 * Math.PI); g.fill();
+  g.fillStyle = "#fff"; g.beginPath(); g.arc(s / 2 + look - 12, s / 2 - 14, 7, 0, 2 * Math.PI); g.fill();
+}
+
+// Which sprite frame the sequence shows ms in: each eye word plays its animation once, a delay holds the last frame
+function seqFrame(f, steps, ms) {
+  let at = 0, last = null;
+  for (const step of steps) {
+    if (step.eyes) {
+      const sp = f.sprites[step.eyes];
+      if (!sp || !sp.frames) continue;
+      const len = sp.frames * P.frame_ms;
+      if (ms < at + len) return [sp, Math.floor((ms - at) / P.frame_ms)];
+      at += len; last = [sp, sp.frames - 1];
+    } else if (step.hold) {
+      if (ms < at + step.hold * 1000 && last) return last;
+      at += step.hold * 1000;
+    }
+  }
+  return last;
+}
+
+function draw(t) {
+  for (const f of Object.values(furbies)) {
+    const s = f.seq;
+    if (s && t >= s.start + s.busy * 1000) {
+      f.seq = null; f.card.classList.remove("moving"); f.now.innerHTML = "&nbsp;";
+    }
+    const frame = f.seq && seqFrame(f, f.seq.steps, t - f.seq.start);
+    f.eyes.forEach((g, row) => {
+      if (frame && frame[0].im.complete) {
+        g.drawImage(frame[0].im, frame[1] * P.size, row * P.size, P.size, P.size, 0, 0, P.size, P.size);
+      } else idleEye(g, t, f);
+    });
+  }
+  requestAnimationFrame(draw);
+}
+
+// ---- playing a scene ------------------------------------------------------------
+
+function handle(e, t) {
+  if (e.kind === "log") {
+    if (!e.text.startsWith("Scene:")) log(e.text, e.text.includes("skipped") ? "busy" : "");
+    return;
+  }
+  const f = furbies[e.furby];
+  if (e.kind === "antenna") return setAntenna(f, e.rgb);
+  const clip = f.info.clips[e.clip];
+  if (e.kind === "busy") {
+    log(e.furby + " is still running its last sequence, so " + e.furby + "." + e.clip +
+        " would play silent: the show waits for it to finish.", "busy");
+    return;
+  }
+  // played: the Furby starts the action's sequence, sound, eyes and movement together
+  const a = f.audio[e.clip];
+  if (a) { a.currentTime = 0; a.play().catch((err) => err.name === "AbortError" || log("Couldn't play " + clip.audio + ": " + err.message, "busy")); }
+  f.seq = { start: t, busy: e.busy, steps: clip ? clip.eyes : [] };
+  f.card.classList.add("moving");
+  f.now.textContent = e.furby + "." + e.clip;
+  f.meta.textContent = (clip ? clip.motor : "") + " · busy " + e.busy.toFixed(1) + " s";
+  $("status").textContent = "Now: " + e.furby + "." + e.clip;
+  log(e.furby + "." + e.clip + "  (sound " + e.audio.toFixed(1) + " s, busy " + e.busy.toFixed(1) + " s" +
+      (clip && clip.theme ? ", " + clip.theme + " eyes" : "") + ")");
+}
+
+function step(t) {
+  const r = run;
+  if (!r.scene) {
+    if (t >= r.resumeAt) next(r);
+    return;
+  }
+  const elapsed = (t - r.t0) / 1000;
+  while (r.i < r.scene.events.length && r.scene.events[r.i].t <= elapsed) handle(r.scene.events[r.i++], t);
+  if (elapsed >= r.scene.end) {
+    log("Scene " + r.index + " done: " + r.scene.seconds.toFixed(1) + " s of show" +
+        (r.scene.end > r.scene.seconds + 0.05 ? ", the last sequence ran " + (r.scene.end - r.scene.seconds).toFixed(1) + " s longer" : ""));
+    r.scene = null;
+    r.resumeAt = t + PAUSE_MS;
+    if (!r.more && !greetingPending) stop("Done.");
+  }
+}
+
+function start(index, r) {
+  const scene = P.timelines[mode][index];
+  lastScene = index;
+  r.scene = scene; r.index = index; r.i = 0; r.t0 = performance.now();
+  const greet = P.greetings.includes(index) ? " (a greeting)" : "";
+  log("Scene " + index + greet + ": " + scene.steps.join(" → ") + "  [" + mode + " timing]");
+  $("status").textContent = "Scene " + index + greet;
+}
+
+function pick(list) {
+  const fresh = list.filter((i) => i !== lastScene);
+  const from = fresh.length ? fresh : list;
+  return from[Math.floor(Math.random() * from.length)];
+}
+
+function next(r) {
+  if (greetingPending) { greetingPending = false; return start(pick(P.greetings.length ? P.greetings : P.timer), r); }
+  const i = r.more();
+  if (i === undefined || i === null) return stop("Done.");
+  start(i, r);
+}
+
+function stop(message) {
+  run = null;
+  $("random").setAttribute("aria-pressed", "false");
+  for (const f of Object.values(furbies)) {
+    for (const a of Object.values(f.audio)) a.pause();
+    f.seq = null; f.card.classList.remove("moving"); f.now.innerHTML = "&nbsp;"; setAntenna(f, OFF);
+  }
+  if (message) $("status").textContent = message;
+}
+
+function begin(first, more) {
+  stop();
+  run = { more, scene: null, resumeAt: 0 };
+  start(first, run);
+}
+
+// ---- controls ---------------------------------------------------------------------
+
+for (const [name, info] of Object.entries(P.furbies)) makeFurby(name, info);
+$("every").textContent = P.every[0] + "–" + P.every[1];
+P.scenes.forEach((s, i) => {
+  const o = document.createElement("option");
+  o.value = i;
+  o.textContent = i + (P.greetings.includes(i) ? " ★ " : "  ") + s.join(" → ");
+  $("scene").append(o);
+});
+$("play").onclick = () => begin(+$("scene").value, null);
+$("all").onclick = () => {
+  let i = 0;
+  begin(0, () => (++i < P.scenes.length ? i : null));
+};
+$("random").onclick = () => {
+  if ($("random").getAttribute("aria-pressed") === "true") return stop("Random show stopped.");
+  begin(pick(P.timer), () => pick(P.timer));
+  $("random").setAttribute("aria-pressed", "true");
+};
+$("door").onclick = () => {
+  if (run && run.scene) {
+    greetingPending = true;
+    log("Someone's at the door: a greeting plays as soon as this scene ends, as on the night.");
+    if (!run.more) run.more = () => null;
+  } else if (run && run.more) {
+    greetingPending = true; run.resumeAt = 0; // cut the wait short, as the button does
+  } else begin(pick(P.greetings.length ? P.greetings : P.timer), null);
+};
+$("stop").onclick = () => { greetingPending = false; stop("Stopped."); };
+document.querySelectorAll('input[name="mode"]').forEach((el) => (el.onchange = () => {
+  mode = el.value;
+  log("Timing: " + mode + " (from the next scene)");
+}));
+requestAnimationFrame(draw);
+// Events go out on a timer, not with the drawing: browsers pause animation frames in background tabs.
+// step() catches up by elapsed time, so a throttled tick still sends everything that's due.
+setInterval(() => run && step(performance.now()), 25);
+// #scene=N starts a scene on load (sound waits for a click unless the browser allows autoplay)
+const hash = location.hash.match(/scene=(\d+)/);
+if (hash && P.scenes[+hash[1]]) { $("scene").value = hash[1]; begin(+hash[1], null); }
+</script>
+</body>
+</html>

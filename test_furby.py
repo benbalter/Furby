@@ -1571,6 +1571,72 @@ class TestEmulator(unittest.TestCase):
         self.assertEqual(model.antenna, (255, 0, 0))
 
 
+class TestPreview(unittest.TestCase):
+    """preview.py's virtual porch replays emulate's timeline, with the DLCs' own sound and eyes"""
+
+    def setUp(self):
+        if not os.path.exists("./dlc/dlc2/tu003410.dlc"):
+            self.skipTest("Test DLC file not found")
+        self.temp_dir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
+
+    def test_build_preview(self):
+        import json
+        import wave
+        from unittest import mock
+
+        import emulate
+        import preview
+
+        pink, blue = TestEmulator.build(self, "pink"), TestEmulator.build(self, "blue")
+        plan = TestEmulator.plan(self, pink, blue)
+        plan["furbies"]["pink"]["antenna"] = [255, 0, 0]  # a steady glow while pink speaks
+        plan["greetings"] = [plan["scenes"][1]]
+        path = os.path.join(self.temp_dir, "show.json")
+        with open(path, "w") as f:
+            json.dump(plan, f)
+        out = os.path.join(self.temp_dir, "preview")
+        with mock.patch("builtins.print"):
+            self.assertEqual(preview.main(["--show", path, "--out", out]), 0)
+        with open(os.path.join(out, "index.html")) as f:
+            self.assertIn('<script src="data.js">', f.read())
+        with open(os.path.join(out, "data.js")) as f:
+            data = json.loads(f.read().split("window.PREVIEW = ", 1)[1].rstrip().rstrip(";"))
+        self.assertEqual((data["timer"], data["greetings"]), ([0], [1]))
+
+        # Sound and eyes from the DLCs
+        clip = data["furbies"]["pink"]["clips"]["a"]
+        with wave.open(os.path.join(out, clip["audio"])) as w:
+            busy, audio = emulate.sequence_seconds(dlc(pink[0]), pink[1][0])
+            self.assertAlmostEqual(w.getnframes() / w.getframerate(), audio, delta=0.1)
+        words = [s["eyes"] for s in clip["eyes"] if "eyes" in s]
+        self.assertTrue(words)
+        sprite = data["furbies"]["pink"]["sprites"][words[0]]
+        self.assertGreater(sprite["frames"], 1)
+        self.assertTrue(os.path.exists(os.path.join(out, sprite["src"])))
+        self.assertIn("motor 0x", clip["motor"])
+
+        # The timeline is emulate's, scene by scene, in both timings
+        dlcs = {"pink": pink[0], "blue": blue[0]}
+        for mode, worst in (("typical", False), ("worst", True)):
+            report = emulate.simulate(plan, dlcs, durations=emulate.load_durations(worst=worst))
+            scenes = data["timelines"][mode]
+            self.assertEqual([s["seconds"] for s in scenes], [r["seconds"] for r in report])
+            self.assertEqual(
+                [sum(e["kind"] == "play" for e in s["events"]) for s in scenes], [r["played"] for r in report]
+            )
+            for s in scenes:
+                plays = [e for e in s["events"] if e["kind"] == "play"]
+                self.assertEqual(plays[0]["t"], 0)  # a scene's first line plays the moment it starts
+                self.assertGreaterEqual(s["end"], max(e["t"] + e["busy"] for e in plays))
+        # pink says both its lines back to back in scene 0, so it waits once, and glows while speaking
+        events = data["timelines"]["typical"][0]["events"]
+        self.assertEqual([e["clip"] for e in events if e["kind"] == "busy"], ["b"])
+        self.assertIn([255, 0, 0], [e["rgb"] for e in events if e["kind"] == "antenna"])
+
+
 class TestAudioUtils(unittest.TestCase):
     """Test the DLL-free audio tools"""
 

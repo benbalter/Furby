@@ -5,3 +5,4 @@ bluefluff
 audio/new_audio/*.mp3
 /build/
 .venv/
+.claude/worktrees/

@@ -1274,5 +1274,282 @@ class TestErrorHandling(unittest.TestCase):
         self.assertEqual(D.dlc_sections, {})
 
 
+
+class FakeTimedFurby:
+    """Builds a stand-in Furby that runs each action for a set time and answers 20:07 while busy"""
+
+    @staticmethod
+    def make(durations, busy_for=0.0):
+        import asyncio
+
+        import furbyshow
+
+        class Fake(furbyshow.Furby):
+            def __init__(self):
+                super().__init__("fake")
+                self.name, self.busy_until, self.triggers = "slots", None, []
+
+            def connected(self):
+                return True
+
+            async def disconnect(self):
+                pass
+
+            async def _write(self, data):
+                if data[0] != 0x13:
+                    return
+                loop = asyncio.get_running_loop()
+                self.triggers.append(tuple(data[2:6]))
+                if self.busy_until is None:  # something was already playing when we connected
+                    self.busy_until = loop.time() + busy_for
+                    if busy_for:
+                        loop.call_at(self.busy_until, self.on_response, b"\x20\x0e")
+                if loop.time() < self.busy_until:
+                    self.on_response(b"\x20\x07")
+                    return
+                seconds = durations[tuple(data[2:6])]
+                self.busy_until = loop.time() + seconds
+                self.on_response(b"\x20\x0c")
+                loop.call_later(seconds, self.on_response, b"\x20\x0e")
+
+        return Fake()
+
+
+class TestProbe(unittest.TestCase):
+    """probe.py builds numbered test DLCs and times each slot against a stand-in Furby"""
+
+    def setUp(self):
+        self.temp_dir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.temp_dir)
+
+    def test_names_and_motors(self):
+        import probe
+        self.assertEqual(probe.parse_motors("e000-e002, 0xe010"), [0xE000, 0xE001, 0xE002, 0xE010])
+        self.assertEqual(len(probe.parse_motors("e000-e028")), 41)
+        for bad in ("e0zz", "e005-e001", ""):
+            with self.assertRaises(SystemExit):
+                probe.parse_motors(bad)
+        self.assertEqual(probe.check_name("motions2"), "motions2")
+        for bad in ("toolongname", "Slots", "my_dlc"):  # the Furby uppercases it and pads with _
+            with self.assertRaises(SystemExit):
+                probe.check_name(bad)
+
+    def say(self, text, path):
+        """Stands in for macOS say: a short silent clip, so the test needs no TTS or ffmpeg"""
+        import struct
+
+        import a1800_codec
+        frames = bytes(a1800_codec.encode(bytes(3200), 16000))[6:]
+        with open(path + ".a18", "wb") as f:
+            f.write(struct.pack("<IH", len(frames) + 2, 16000) + frames)
+        self.said.append(text)
+        return path + ".a18"
+
+    def test_build_motions(self):
+        """Each slot says "move N" and its sequence becomes just its motor word and one eye animation"""
+        import json
+        from unittest import mock
+
+        import probe
+        import spooky_eyes
+        if not os.path.exists(probe.STOCK_DLC):
+            self.skipTest("Test DLC file not found")
+        self.said = []
+        with mock.patch("builtins.print"):
+            path = probe.build("motions", [0xE000, 0xE005, 0xE028], out_dir=self.temp_dir, say=self.say)
+        self.assertEqual(self.said, ["move 1", "move 2", "move 3"])
+        self.assertTrue(path.endswith("motions.dlc"))
+        with open(os.path.join(self.temp_dir, "motions.json")) as f:
+            plan = json.load(f)
+        D = dlc(path)
+        slots = spooky_eyes.scene_slots(dlc(probe.STOCK_DLC))
+        for entry, code, motor in zip(plan["slots"], slots[:3], (0xE000, 0xE005, 0xE028), strict=True):
+            self.assertEqual(tuple(entry["action"]), code)
+            self.assertEqual(D.dlc_sections["SEQ"].sequences[spooky_eyes._seq(D, code)][2:], [motor, 0x8401, 0])
+            self.assertEqual(entry["motor"], "0x%04x" % motor)
+        self.assertEqual(plan["kind"], "motions")
+        with self.assertRaises(SystemExit):  # more motor words than slots: split them
+            probe.build("toomany", list(range(0xE000, 0xE029)), out_dir=self.temp_dir, say=self.say)
+
+    def test_sweep_times_each_slot(self):
+        """run waits out 20:07, then times 20:0c to 20:0e for every slot, every run"""
+        import asyncio
+
+        import probe
+        slots = [{"n": 1, "action": [75, 0, 0, 2], "say": "1"}, {"n": 2, "action": [75, 0, 0, 3], "say": "2"}]
+        furby = FakeTimedFurby.make({(75, 0, 0, 2): 0.1, (75, 0, 0, 3): 0.3}, busy_for=0.2)
+        logs = []
+        runs = asyncio.run(probe.sweep(furby, slots, times=2, reverse=True, gap=0, settle=0, log=logs.append))
+        self.assertEqual(furby.triggers[:2], [(75, 0, 0, 3)] * 2)  # reversed, and retried once while busy
+        self.assertEqual(len(runs), 2)
+        self.assertEqual(runs[0][2]["retries"], 1)
+        self.assertEqual(runs[1][2]["retries"], 0)
+        for run in runs:
+            self.assertAlmostEqual(run[1]["seconds"], 0.1, delta=0.08)
+            self.assertAlmostEqual(run[2]["seconds"], 0.3, delta=0.08)
+        rows = probe.summarize(slots, runs)
+        self.assertEqual([r["n"] for r in rows], [1, 2])
+        self.assertEqual(rows[1]["retries"], 1)
+        self.assertLessEqual(rows[1]["min"], rows[1]["max"])
+        self.assertIn("slot", probe.table(rows))
+        self.assertTrue(any("busy retries" in line for line in logs))
+
+    def test_slots_from_show(self):
+        """With no probe map, run plays a show DLC's clips, so it can time pink and blue too"""
+        import json
+
+        import probe
+        show = os.path.join(self.temp_dir, "show.json")
+        with open(show, "w") as f:
+            json.dump({"furbies": {"pink": {"clips": {"boo": {"action": [75, 0, 0, 2]}, "a": {"action": [75, 0, 0, 3]}}}}}, f)
+        slots = probe.load_slots("pink", out_dir=self.temp_dir, show_json=show)
+        self.assertEqual([(s["n"], s["say"], s["action"]) for s in slots], [(1, "a", [75, 0, 0, 3]), (2, "boo", [75, 0, 0, 2])])
+
+
+class TestDoctor(unittest.TestCase):
+    """doctor.py explains what's missing, with a fix for each problem"""
+
+    def setUp(self):
+        self.temp_dir = tempfile.mkdtemp()
+        self.lines = []
+
+    def tearDown(self):
+        shutil.rmtree(self.temp_dir)
+
+    def report(self):
+        import doctor
+        return doctor.Report(self.lines.append)
+
+    def write_show(self):
+        sfx = os.path.join(self.temp_dir, "build", "sfx")
+        os.makedirs(sfx)
+        here = os.path.join(sfx, "boo-0.wav")
+        open(here, "wb").close()
+        toml = os.path.join(self.temp_dir, "show.toml")
+        with open(toml, "w") as f:
+            f.write(
+                '[show]\ngap = 0.5\nevery = [20, 45]\n'
+                '[furbies.pink.clips]\nboo = "%s"\ncackle = "%s/witch-cackle-0.wav"\n'
+                'song = { path = "%s/song.mp3", optional = true }\n'
+                '[furbies.blue.clips]\nhi = "%s"\n'
+                '[[scenes]]\nsteps = ["pink.boo", "pink.cackle", "blue.hi"]\n' % (here, sfx, sfx, here)
+            )
+        return toml
+
+    def test_clips(self):
+        """A missing clip fails with how to get it; a missing optional one only warns"""
+        import doctor
+        r = self.report()
+        show = doctor.check_show(r, self.write_show())
+        self.assertEqual(sorted(show["furbies"]), ["blue", "pink"])
+        self.assertEqual(r.failures, 1)
+        text = "\n".join(self.lines)
+        self.assertIn("pink.cackle", text)
+        self.assertIn('freesound_fetch.py "witch cackle"', text)
+        self.assertIn("optional", text)
+        self.assertIn("blue: all 1 clips are there", text)
+
+    def test_bad_show(self):
+        import doctor
+        toml = os.path.join(self.temp_dir, "show.toml")
+        with open(toml, "w") as f:
+            f.write('[show]\n[furbies.pink.clips]\n[[scenes]]\nsteps = ["pink.nope"]\n')
+        r = self.report()
+        self.assertIsNone(doctor.check_show(r, toml))
+        self.assertEqual(r.failures, 1)
+
+    def test_built_dlcs(self):
+        """Each DLC must exist, fit in an upload, and match show.json's checksum"""
+        import json
+        import zlib
+        from unittest import mock
+
+        import doctor
+        out = os.path.join(self.temp_dir, "halloween")
+        os.makedirs(out)
+        r = self.report()
+        self.assertIsNone(doctor.check_build(r, None, out, "show.toml"))
+        self.assertIn("uv run halloween.py", self.lines[-1])
+        pink, blue = b"pink" * 100, b"blue" * 100
+        for name, data in (("pink", pink), ("blue", b"stale")):
+            with open(os.path.join(out, name + ".dlc"), "wb") as f:
+                f.write(data)
+        plan = {"furbies": {"pink": {"checksum": zlib.adler32(pink)}, "blue": {"checksum": zlib.adler32(blue)},
+                            "cyan": {"checksum": 1}}}
+        with open(os.path.join(out, "show.json"), "w") as f:
+            json.dump(plan, f)
+        self.lines.clear()
+        r = self.report()
+        self.assertEqual(doctor.check_build(r, None, out, "show.toml"), plan)
+        self.assertEqual(r.failures, 2)  # blue doesn't match, cyan isn't built
+        self.assertTrue(any(line.startswith("✅ pink.dlc") for line in self.lines))
+        with mock.patch("spooky_eyes.MAX_UPLOAD", 100):
+            r = self.report()
+            doctor.check_build(r, None, out, "show.toml")
+            self.assertIn("uploads time out", "\n".join(self.lines))
+
+    def test_bluetooth(self):
+        """A failed or hung scan on macOS points at the Bluetooth permission for the terminal app"""
+        import subprocess
+        from unittest import mock
+
+        import doctor
+
+        def runs(returncode=0, stdout="", stderr="", hang=False):
+            def run(cmd, **kw):
+                if hang:
+                    raise subprocess.TimeoutExpired(cmd, kw.get("timeout"))
+                return subprocess.CompletedProcess(cmd, returncode, stdout, stderr)
+            return run
+
+        with mock.patch.object(doctor, "MAC", True):
+            r = self.report()
+            doctor.check_bluetooth(r, runs(stdout="12 2\n"))
+            self.assertEqual(r.failures, 0)
+            self.assertIn("12 devices", self.lines[-1])
+            for run in (runs(1, stderr="BleakError: BLE is not authorized"), runs(hang=True), runs(-6)):
+                r = self.report()
+                doctor.check_bluetooth(r, run)
+                self.assertEqual(r.failures, 1)
+                self.assertIn("Privacy & Security", self.lines[-1])
+            r = self.report()
+            doctor.check_bluetooth(r, runs(1, stderr="BleakError: Bluetooth device is turned off"))
+            self.assertIn("Turn Bluetooth on", self.lines[-1])
+
+    def test_furbies(self):
+        """Each Furby in the show must be in range with its own, current DLC"""
+        import asyncio
+
+        import doctor
+
+        class Found:
+            def __init__(self, name, checksum):
+                self.name, self.checksum, self.address, self.disconnected = name, checksum, "placeholder", False
+
+            async def disconnect(self):
+                self.disconnected = True
+
+        found = [Found("pink", 1), Found("probe", 5)]
+
+        async def find(known):
+            return found
+
+        plan = {"furbies": {"pink": {"checksum": 1}, "blue": {"checksum": 2}}}
+        r = self.report()
+        asyncio.run(doctor.check_furbies(r, plan, find))
+        self.assertEqual(r.failures, 2)  # probe.dlc isn't in the show, and blue is nowhere
+        self.assertTrue(all(f.disconnected for f in found))
+        text = "\n".join(self.lines)
+        self.assertIn("✅ pink", text)
+        self.assertIn("one at a time", text)
+
+    def test_missing_packages(self):
+        import doctor
+        r = self.report()
+        self.assertFalse(doctor.check_packages(r, lambda mod: None if mod == "bleak" else object()))
+        self.assertIn("uv run doctor.py", self.lines[-1])
+
 if __name__ == '__main__':
     unittest.main()

@@ -474,6 +474,12 @@ Change it in [`halloween/show.toml`](halloween/show.toml) with `light` on a clip
 
 `python porch.py --rehearse` draws each antenna as a coloured block in the terminal while the clips play, so you can tune lights without the Furbies. On the Furbies themselves, the light runs alongside each line and never delays a trigger, and the antenna goes dark when the line ends or a scene is cut short. Not yet checked on a real Furby: whether the antenna dims smoothly or only switches colour, and whether 10 updates a second interferes with playback. If lines stutter, lower `light_hz`; if dimmed colours look wrong, use `light = "steady"`.
 
+## Checking your setup and probing a Furby
+
+`uv run doctor.py` checks everything the show needs and prints a ✅ or a ❌ with a one-line fix for each: Python and uv, ffmpeg, whether this computer can use Bluetooth (on a Mac, the app you run it in needs Bluetooth permission under System Settings → Privacy & Security), every clip in `show.toml`, and the built DLCs. Wake the Furbies and add `--furbies` to check that each one is in range with the right DLC.
+
+[`probe.py`](probe.py) measures what a Furby does with each slot. `uv run probe.py build slots` builds a DLC where every slot says its own number, and `uv run probe.py build motions e000-e017` one where slot N says "move N" and runs just that body movement. Flash it with `flash.py`, then `uv run probe.py run slots` plays each slot in turn, times it from start to finish, and saves the table in `build/probe/`. Add `--reverse`, `--times 3` or `--only 2,5` to dig into odd ones.
+
 ## License
 
 Files marked `SPDX-License-Identifier: MIT` (the Halloween show, the firmware, and the audio tools in `audioutils/` that carry that header) are available under the [MIT License](LICENSES/MIT.txt). The rest of the repository comes from [Context's original project](https://github.com/ctxis/Furby), which doesn't state a license, so those files stay under Context's terms. Hasbro owns the Furby name and the stock DLC, audio and artwork included here.

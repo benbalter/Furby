@@ -31,6 +31,10 @@ firmware/deploy.sh                      # copy the show to an ESP32 running Micr
 uv run spooky_eyes.py --theme pumpkin   # standalone eyes DLC
 uv run spooky_eyes.py --preview         # build/eyes/<theme>.gif and .png for every eye theme
 uv run spooky_eyes.py --probe           # numbered test animations that answer the open eye questions
+uv run doctor.py [--furbies]           # check tools, Bluetooth, clips, built DLCs (and Furbies), with a fix per problem
+uv run probe.py build slots            # each scene slot says its number → build/probe/slots.dlc + slots.json
+uv run probe.py build motions e000-e017  # slot N says "move N" and runs only motor word N (24 slots per DLC)
+uv run probe.py run slots [--reverse] [--times N] [--only 2,5]  # time each slot 20:0c → 20:0e; saves build/probe/<name>-<time>.json
 ```
 
 ## Architecture
@@ -42,7 +46,7 @@ uv run spooky_eyes.py --probe           # numbered test animations that answer t
 **Hardware facts that shape the design** (from testing on a real Furby):
 - A DLC only changes what plays when an action is **triggered over Bluetooth**. The Furby's own reactions (noise, petting, input 20 and so on) come from built-in memory, whatever DLC is active. So the show needs a controller that sends the triggers.
 - Custom clips go on input-75 ("app video") actions. `spooky_eyes.scene_slots()` returns the 75 actions whose track and sequence no other 75 action shares, so each clip plays only where intended.
-- A triggered action's sequence keeps the Furby busy until its body movement and eye delays finish, which is often long after its clip ends. Trigger it again before then and it replies `20:07` (speech playing) and runs the action **without audio**; a normal start replies `20:0c`, and the end sends `20:0e`. `Furby.play()` retries on `20:07`. Slots whose motor word is `0xc4xx` (the DLC's own routines) run 10–21 s, so `halloween.quick_slots()` skips them; the built-in `0xe0xx` movements take about 1–9 s and vary from run to run.
+- A triggered action's sequence keeps the Furby busy until its body movement and eye delays finish, which is often long after its clip ends. Trigger it again before then and it replies `20:07` (speech playing) and runs the action **without audio**; a normal start replies `20:0c`, and the end sends `20:0e`. `Furby.play()` retries on `20:07`. Slots whose motor word is `0xc4xx` (the DLC's own routines) run 10–21 s, so `halloween.quick_slots()` skips them; the built-in `0xe0xx` movements take about 1–9 s and vary from run to run. Run alone (one motor word per sequence, one eye animation, no delays), every built-in motor word from `e000` to `e028` ran, in 0.8–10.3 s, so there are probably about 41 built-in movements. Re-measure with `probe.py` rather than one-off scripts.
 - Two Furby Connects near each other sing together, and while they do neither one advertises, so nothing can find them (they seem to pair; the F2F characteristics suggest so, unverified). Power them up one at a time and let the show connect to each one first.
 - Uploads time out above about 350 KB (`MAX_UPLOAD`). Audio costs about 2 KB per second, and each slot stores its own copy of a clip.
 - The Furby stores DLCs under 8.3 names (`____PINK.DLC`). The show tells the Furbies apart by their active DLC's name, and checks its Adler-32 checksum against `show.json`.

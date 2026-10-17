@@ -19,6 +19,9 @@ uv run ruff check . && uv run ruff format --check .
 
 - The MicroPython tests (`test_show_runs_on_micropython`, `test_compiles_for_micropython`) skip unless `micropython` is on PATH (`brew install micropython`). CI runs them in a macOS job, and also compiles the board files with `mpy-cross`.
 - Tests depend on the stock DLC `dlc/dlc2/tu003410.dlc` and the `.a18` files in `audio/new_audio/`.
+- `TestRealShow` builds the real [halloween/show.toml](halloween/show.toml) with placeholder tones ([tools/ci_show.py](tools/ci_show.py)) and fails on any line [emulate.py](emulate.py) finds silent or skipped. CI's `show` job runs the same build, prints emulate's report, and runs [eyecheck.py](eyecheck.py) as a warning only, until its rules match what real Furbies show. To run it locally: `uv run tools/ci_show.py && uv run emulate.py build/ci-show/show.json`.
+- `TestScripts` runs `--help` on every argparse script, so a broken import fails CI even in scripts no test imports.
+- CI's lint job also runs actionlint and an offline [lychee](https://github.com/lycheeverse/lychee) check of the Markdown's relative links and anchors. [Dependabot](.github/dependabot.yml) sends one grouped PR a week at most for action updates; actions use floating major tags, never SHA pins.
 
 Halloween show pipeline:
 

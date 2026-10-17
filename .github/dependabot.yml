@@ -1,0 +1,13 @@
+# Keeps the workflows' actions current without SHA pins. Most use floating
+# major tags (actions/checkout@v7), which only need a bump for a new major
+# version; setup-uv no longer publishes one, so its exact tag changes with
+# most of its releases. Everything arrives as one grouped PR a week at most.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]

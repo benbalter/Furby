@@ -25,10 +25,10 @@ jobs:
     
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
     
     - name: Set up Python
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@v7
       with:
         python-version: '3.12'
     
@@ -75,8 +75,10 @@ jobs:
     
     - name: Verify input file exists
       shell: pwsh
+      env:
+        AUDIO_FILE_PATH: ${{ inputs.audio_file_path }}
       run: |
-        $inputFile = "${{ inputs.audio_file_path }}"
+        $inputFile = $env:AUDIO_FILE_PATH
         if (-not (Test-Path $inputFile)) {
           Write-Host "::error::Input file not found: $inputFile"
           exit 1
@@ -85,27 +87,32 @@ jobs:
     
     - name: Convert audio to a18
       shell: pwsh
+      # Inputs come in through env and go to python as separate arguments,
+      # never pasted into the script, so a path can't run as code
+      env:
+        AUDIO_FILE_PATH: ${{ inputs.audio_file_path }}
+        OUTPUT_PATH: ${{ inputs.output_path }}
+        SAMPLE_RATE: ${{ inputs.sample_rate }}
       run: |
-        $inputFile = "${{ inputs.audio_file_path }}"
-        $outputFile = "${{ inputs.output_path }}"
-        $sampleRate = "${{ inputs.sample_rate }}"
-        
-        # Build command
-        $cmd = "python audioutils/convert_to_a18.py `"$inputFile`""
-        
+        $inputFile = $env:AUDIO_FILE_PATH
+        $outputFile = $env:OUTPUT_PATH
+        $sampleRate = $env:SAMPLE_RATE
+
+        $pyArgs = @("audioutils/convert_to_a18.py", $inputFile)
+
         if ($outputFile) {
-          $cmd += " -o `"$outputFile`""
+          $pyArgs += @("-o", $outputFile)
         } else {
           # Use default output path
           $outputFile = [System.IO.Path]::ChangeExtension($inputFile, ".a18")
         }
         
         if ($sampleRate -ne "16000") {
-          $cmd += " -s $sampleRate"
+          $pyArgs += @("-s", $sampleRate)
         }
-        
-        Write-Host "Running: $cmd"
-        Invoke-Expression $cmd
+
+        Write-Host "Running: python $pyArgs"
+        & python @pyArgs
         
         if ($LASTEXITCODE -ne 0) {
           Write-Host "::error::Conversion failed"
@@ -117,7 +124,7 @@ jobs:
         echo "OUTPUT_FILE=$outputFile" >> $env:GITHUB_ENV
     
     - name: Upload a18 artifact
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: converted-a18
         path: ${{ env.OUTPUT_FILE }}

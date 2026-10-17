@@ -180,9 +180,14 @@ async def main(args):
             print("%s  active DLC: %s" % (furby.address, furby.name))
             await furby.disconnect()
         return
-    found = [d for d in await BleakScanner.discover(timeout=8) if (d.name or "").startswith("Furby")]
-    if args.address:
-        found = [d for d in found if d.address.lower() == args.address.lower()]
+    found = []
+    for _ in range(4):  # give a sleepy Furby time to wake: tilt it or pet its head
+        found = [d for d in await BleakScanner.discover(timeout=8) if (d.name or "").startswith("Furby")]
+        if args.address:
+            found = [d for d in found if d.address.lower() == args.address.lower()]
+        if found:
+            break
+        print("No Furby found yet; wake it by tilting it or petting its head...")
     if len(found) != 1:
         raise SystemExit(
             "Found %d Furbies in range%s. Wake just the one to flash (and close FurBLE), or pass --address; "

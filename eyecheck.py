@@ -74,6 +74,14 @@ RULES = ("layer", "slot")
 PROVEN_PLAYLISTS = 16
 PROVEN_SPR_BYTES = 5460
 PROVEN_DLC_BYTES = 239_262  # spooky_demon.dlc; Hasbro's own are bigger, but come through the app
+# eyesb.dlc (9 cels), eyese.dlc and eyesh.dlc (10 cels each) showed garbled
+# digits; eyesc.dlc (18), eyesf.dlc (16) and Hasbro's (79) didn't. The garbled
+# three are also the only ones whose two eyes shared cels in a blanked-layer
+# layout (Hasbro's shares cels between its eyes too, over real eye art), so
+# which of the two broke them is inferred, not settled: eyesk.dlc (shared,
+# padded to 18 cels) and eyesl.dlc (separate, 10 cels) split it. Both are
+# errors until then.
+PROVEN_MIN_CELS = 16
 
 
 def animation_playlists(word):
@@ -155,6 +163,17 @@ def first_mismatch(frames, expected):
     return None
 
 
+def _eye_cels(S, playlists, side):
+    """Every cel the right (side 0, even playlists) or left (1) eye of these playlists uses."""
+    return {
+        S.frames[f][2 * q]
+        for p in playlists
+        if p % 2 == side
+        for f in S.frame_playlists[p]["frame_indices"]
+        for q in range(4)
+    }
+
+
 def envelope(D):
     """Ways the DLC's eyes leave what's been seen working on a Furby: (errors, warnings)."""
     S, cels = D.dlc_sections["SPR"], D.dlc_sections["CEL"].cels
@@ -172,6 +191,19 @@ def envelope(D):
             "SPR is %d bytes; every DLC whose eyes have worked has a %d-byte SPR (38-frame animations). "
             "Use eye_frames = 38." % (size, PROVEN_SPR_BYTES)
         )
+    if len(cels) < PROVEN_MIN_CELS:
+        errors.append(
+            "%d cels: every DLC with fewer than %d (eyesb, eyese, eyesh) showed garbled eyes."
+            % (len(cels), PROVEN_MIN_CELS)
+        )
+    for word in dlc_words(D):
+        playlists = [p for p in animation_playlists(word) if p < n]
+        shared = sorted(_eye_cels(S, playlists, 0) & _eye_cels(S, playlists, 1) - {0, 1})
+        if shared and _eye_cels(S, playlists[:2], 0) | _eye_cels(S, playlists[:2], 1) <= {0, 1}:
+            errors.append(
+                "0x%04x's eyes share cels (%s) over blanked lower layers; eyese and eyesh, the probes that "
+                "did that, showed garbled eyes. Give each eye its own cels." % (word, ", ".join(map(str, shared[:5])))
+            )
     for word in dlc_words(D):
         missing = [p for p in animation_playlists(word) if p >= n]
         if missing:

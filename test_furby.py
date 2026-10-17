@@ -205,9 +205,9 @@ class TestCustomEyes(unittest.TestCase):
         for theme in spooky_eyes.THEMES:
             output_path = spooky_eyes.build(theme, out_dir=self.temp_dir)
             self.assertLess(os.path.getsize(output_path), spooky_eyes.MAX_UPLOAD)
-            # transparent + blank cels, then at most 4 quarters per keyframe (both eyes share them)
+            # transparent + blank cels, then at most 4 quarters per keyframe for each eye
             cels = len(dlc(output_path).dlc_sections["CEL"].cels)
-            self.assertLessEqual(cels, 2 + 4 * len(spooky_eyes.THEMES[theme]["keys"]))
+            self.assertLessEqual(cels, 2 + 8 * len(spooky_eyes.THEMES[theme]["keys"]))
             self.assertTrue(os.path.exists(os.path.join(self.temp_dir, theme, "eyes_%s.gif" % theme)))
 
     def test_one_animation_keeps_demo_layout(self):
@@ -227,11 +227,16 @@ class TestCustomEyes(unittest.TestCase):
             self.assertEqual({w for f in frames for w in f[1:8:2]}, {ref})
             if p < 12:
                 self.assertEqual({w for f in frames for w in f[0:8:2]}, {1})  # blanked
-        # the frames follow the timeline, and both eyes show the same cels
+        # the frames follow the timeline, and each eye has its own cels (probes whose eyes shared them
+        # came out garbled): the left eye's first, consecutive within each frame, as install_eyes() does
         right = [S.frames[f][0:8:2] for f in S.frame_playlists[12]["frame_indices"]]
         left = [S.frames[f][0:8:2] for f in S.frame_playlists[13]["frame_indices"]]
-        self.assertEqual(right, left)
+        self.assertFalse({c for f in right for c in f} & {c for f in left for c in f})
         self.assertEqual(len({tuple(f) for f in right}), 3)
+        self.assertEqual([[c - 12 for c in f] for f in right], left)
+        self.assertEqual(sorted({c for f in left for c in f}), list(range(2, 14)))
+        import eyecheck
+        self.assertEqual(eyecheck.envelope(D)[0], [])
         self.assertEqual(D.dlc_sections["PAL"].palettes[4], D.dlc_sections["PAL"].palettes[5])
         for code in spooky_eyes.DEMO_ACTIONS:
             self.assertEqual(set(spooky_eyes.eye_words(D, code)), {0x8401})
@@ -242,25 +247,25 @@ class TestCustomEyes(unittest.TestCase):
         stock = dlc(self.test_dlc_path)
         slots = spooky_eyes.scene_slots(stock)
         clip = "./audio/new_audio/darkside_wav.a18"
-        eyes = {slots[0]: "storm", slots[1]: "ghost", slots[2]: "demon"}
-        path = spooky_eyes.build("demon", clips=dict.fromkeys(slots[:4], clip), eyes=eyes, out_dir=self.temp_dir)
+        eyes = {slots[0]: "ghost", slots[1]: "demon"}
+        path = spooky_eyes.build("demon", clips=dict.fromkeys(slots[:3], clip), eyes=eyes, out_dir=self.temp_dir)
         self.assertLess(os.path.getsize(path), spooky_eyes.MAX_UPLOAD)
         D = dlc(path)
         S = D.dlc_sections["SPR"]
-        self.assertEqual(len(S.frame_playlists), 8 + 3 * 8)  # animation 0, then demon, ghost, storm
+        self.assertEqual(len(S.frame_playlists), 8 + 2 * 8)  # animation 0, then demon, ghost
         stock_layers = [p["layer"] for p in stock.dlc_sections["SPR"].frame_playlists[8:16]]
-        for n in range(3):
+        for n in range(2):
             group = S.frame_playlists[8 + 8 * n:16 + 8 * n]
             self.assertEqual([p["layer"] for p in group], stock_layers)
             self.assertEqual([p["framecount"] for p in group], [38] * 6 + [1, 1])
         # demon is animation 1 (0x8401), the main theme; the rest follow in name order
-        expected = {slots[0]: 0x8403, slots[1]: 0x8402, slots[2]: 0x8401, slots[3]: 0x8401}
+        expected = {slots[0]: 0x8402, slots[1]: 0x8401, slots[2]: 0x8401}
         for code, word in expected.items():
             self.assertEqual(set(spooky_eyes.eye_words(D, code)), {word})
-        # three different animations, each following its theme's timeline
-        rendered = {w: spooky_eyes.render(D, w) for w in (0x8401, 0x8402, 0x8403)}
-        self.assertEqual(len({f.tobytes() for frames in rendered.values() for f in frames}), 9)
-        for word, theme in ((0x8401, "demon"), (0x8402, "ghost"), (0x8403, "storm")):
+        # two different animations, each following its theme's timeline
+        rendered = {w: spooky_eyes.render(D, w) for w in (0x8401, 0x8402)}
+        self.assertEqual(len({f.tobytes() for frames in rendered.values() for f in frames}), 6)
+        for word, theme in ((0x8401, "demon"), (0x8402, "ghost")):
             order = spooky_eyes.timeline(theme)
             for i, j in enumerate(order):
                 self.assertEqual(rendered[word][i].tobytes(), rendered[word][order.index(j)].tobytes())
@@ -285,7 +290,7 @@ class TestCustomEyes(unittest.TestCase):
         self.assertEqual([os.path.basename(p) for p in paths], list(spooky_eyes.PROBE))
         for path, (anims, actions, (how, _)) in zip(paths, spooky_eyes.PROBE.values(), strict=True):
             self.assertLessEqual(len(os.path.basename(path)), 12)  # the Furby keeps 8.3 names
-            self.assertLess(os.path.getsize(path), 200000)
+            self.assertLess(os.path.getsize(path), 220000)
             D = dlc(path)
             self.assertEqual(len(D.dlc_sections["SPR"].frame_playlists), 8 + 8 * len(anims))
             if how != "demo":
@@ -1314,6 +1319,21 @@ class TestEyeCheck(unittest.TestCase):
         errors, _ = eyecheck.check(dlc(path))
         self.assertTrue(any("24 SPR playlists" in e for e in errors), errors)
         self.assertNotEqual(eyecheck.main([path]), 0)
+
+    def test_shared_eye_cels_fail(self):
+        """Eyes sharing cels over blanked layers, or under 16 cels, is what eyesb, eyese and eyesh showed garbled"""
+        from PIL import Image
+
+        import eyecheck
+        import spooky_eyes
+        keys = [spooky_eyes._digit(d, spooky_eyes.RED).resize((128, 128), Image.LANCZOS) for d in (1, 2)]
+        for share in (True, False):
+            D = dlc(self.stock_path)
+            spooky_eyes.install_animations(D, [(keys, [i * 2 // 38 for i in range(38)])], share=share)
+            D.trigger_custom_graphics((75, 0, 4, 4))
+            errors = eyecheck.envelope(D)[0]
+            self.assertEqual(any("share cels" in e for e in errors), share, errors)
+            self.assertEqual(any("cels: every DLC with fewer" in e for e in errors), share, errors)
 
     def test_long_animation_fails(self):
         """A 76-frame animation's SPR is bigger than any that has shown on a Furby"""

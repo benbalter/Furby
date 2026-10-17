@@ -209,7 +209,7 @@ def _repeat(pattern, frames):
 
 # Each theme: a function that draws one keyframe from a parameter, the
 # parameters for its keyframes, and which keyframe each frame of the timeline
-# shows (repeated to fill the timeline). Every keyframe costs about 12 KB of
+# shows (repeated to fill the timeline). Every keyframe costs about 25 KB of
 # the DLC, so themes get their motion from the order of a few keyframes.
 THEMES = {
     "demon": {  # a slow, smouldering pulse
@@ -328,12 +328,17 @@ def _add_cels(cels, frames, dedup="frame"):
     return out
 
 
-def install_animations(D, animations, zero=(248, 0, 248, 0), dedup="frame"):
+def install_animations(D, animations, zero=(248, 0, 248, 0), dedup="frame", share=False):
     """Put animations on the DLC's eyes; returns the eye word for each (0x8401, 0x8402, ...).
 
     animations: a list of (keyframes, timeline) pairs, keyframes being 128x128
     RGB images and timeline the keyframe each frame shows (so its length is
-    the animation's). Both eyes show the same image, so they share cels.
+    the animation's). Both eyes show the same image, but each eye has its own
+    copy of the cels (left eye's first, as demo.install_eyes() does): every
+    probe whose eyes shared cels (eyesb, eyese, eyesh) showed garbled digits
+    on a Furby. Those also all had under 16 cels, so which of the two broke
+    them is open (eyesk and eyesl split it). share=True shares them anyway,
+    to rebuild those probes.
 
     The first animation takes the place of the stock one (SPR playlists 8-15),
     laid out exactly as demo.install_eyes() does, which has run on a Furby:
@@ -353,7 +358,9 @@ def install_animations(D, animations, zero=(248, 0, 248, 0), dedup="frame"):
     PAL.palettes[5][:] = palette
 
     CEL.cels = CEL.cels[:1] + [[row[:] for row in CEL.cels[BLANK_CEL]]]
-    frame_cels = _add_cels(CEL.cels, [_quarters(p) for p in pixels], dedup)
+    quarters = [_quarters(p) for p in pixels]
+    left_cels = _add_cels(CEL.cels, quarters, dedup)
+    right_cels = left_cels if share else _add_cels(CEL.cels, quarters, dedup)
 
     # The palette words demo.install_eyes() uses, from the stock frames.
     refs = sorted({w for f in S.frames for w in f[1:8:2]})
@@ -369,15 +376,16 @@ def install_animations(D, animations, zero=(248, 0, 248, 0), dedup="frame"):
         for k, t in enumerate(template):
             if base + k >= len(S.frame_playlists):
                 S.frame_playlists.append(dict(t, frame_indices=[], framelist_index=base + k))
-        shown = [frame_cels[offset + i] for i in order]
+        right = [right_cels[offset + i] for i in order]
+        left = [left_cels[offset + i] for i in order]
         offset += len(keys)
         for k in range(6):  # eye, chilli and flame layers, right and left
             if k == 4:
-                _set_frames(S, base + k, [[(c, right_ref) for c in f] for f in shown])
+                _set_frames(S, base + k, [[(c, right_ref) for c in f] for f in right])
             elif k == 5:
-                _set_frames(S, base + k, [[(c, left_ref) for c in f] for f in shown])
+                _set_frames(S, base + k, [[(c, left_ref) for c in f] for f in left])
             else:
-                _set_frames(S, base + k, [blank] * len(shown))
+                _set_frames(S, base + k, [blank] * len(order))
         if n:  # the top layer: a copy of animation 1's one transparent frame
             for k in (6, 7):
                 _set_frames(S, base + k, [[(0, refs[1])] * 4])
@@ -554,7 +562,7 @@ def build(
 
     dlc_out = os.path.join(out_dir, "%s.dlc" % (name or "spooky_%s" % theme))
     D.build(dlc_out)
-    size = _check_size(dlc_out, "Use shorter or fewer clips, or fewer eye themes (each costs about 37 KB).")
+    size = _check_size(dlc_out, "Use shorter or fewer clips, or fewer eye themes (each costs about 74 KB).")
     built = dlc(dlc_out)
     for t, w in words.items():
         save_preview(render(built, w), os.path.join(work_dir, "eyes_%s.gif" % t))
@@ -583,9 +591,9 @@ PROBE = {
     "eyesa.dlc": (
         [("12", FRAMES, RED), ("34", FRAMES, GREEN), ("5678", 2 * FRAMES, CYAN)],
         {(75, 0, 4, 4): 0, (75, 0, 3, 4): 1, (75, 0, 0, 3): 2, (75, 0, 4, 2): 0},
-        ("multi", {"dedup": "quarter"}),
+        ("multi", {"dedup": "quarter", "share": True}),
     ),
-    "eyesb.dlc": ([("12", FRAMES, RED)], dict.fromkeys(EVERY, 0), ("single", {"dedup": "quarter"})),
+    "eyesb.dlc": ([("12", FRAMES, RED)], dict.fromkeys(EVERY, 0), ("single", {"dedup": "quarter", "share": True})),
     "eyesc.dlc": ([("12", FRAMES, RED)], dict.fromkeys(DEMO_ACTIONS, 0), ("demo", {})),
     # Round 3: eyesc plus one of eyesb's changes each.
     "eyesd.dlc": ([("12", FRAMES, RED)], dict.fromkeys(DEMO_ACTIONS, 0), ("layout", {"palette": "kmeans"})),
@@ -593,7 +601,18 @@ PROBE = {
     "eyesf.dlc": ([("12", FRAMES, RED)], dict.fromkeys(DEMO_ACTIONS, 0), ("layout", {"dedup": "quarter"})),
     "eyesg.dlc": ([("12", FRAMES, RED)], dict.fromkeys(DEMO_ACTIONS, 0), ("layout", {"order": "halves"})),
     # The new pipeline with whole-frame dedup only: eyesb minus the suspected cause.
-    "eyesh.dlc": ([("12", FRAMES, RED)], dict.fromkeys(EVERY, 0), ("single", {"dedup": "frame"})),
+    "eyesh.dlc": ([("12", FRAMES, RED)], dict.fromkeys(EVERY, 0), ("single", {"dedup": "frame", "share": True})),
+    # Round 4: eyesf passed (a cel repeated within a frame is fine); eyese and eyesh, whose eyes share
+    # cels, came out garbled. But every garbled probe also had under 16 cels (eyesb 9, eyese and eyesh 10;
+    # eyesf 16, eyesc 18), and Hasbro's own DLC shares cels between its eyes. eyesk and eyesl split the two.
+    "eyesi.dlc": ([("12", FRAMES, RED)], dict.fromkeys(EVERY, 0), ("single", {})),
+    "eyesj.dlc": (
+        [("12", FRAMES, RED), ("34", FRAMES, GREEN), ("5", FRAMES, CYAN)],
+        {(75, 0, 4, 4): 0, (75, 0, 3, 4): 1, (75, 0, 0, 3): 2, (75, 0, 4, 2): 0},
+        ("multi", {}),
+    ),
+    "eyesk.dlc": ([("12", FRAMES, RED)], dict.fromkeys(DEMO_ACTIONS, 0), ("layout", {"share": True, "pad": 8})),
+    "eyesl.dlc": ([("1", FRAMES, RED)], dict.fromkeys(DEMO_ACTIONS, 0), ("layout", {})),
 }
 
 
@@ -621,7 +640,7 @@ def _demo_gifs(keys, work_dir):
     return paths
 
 
-def install_layout(D, keys, work_dir, palette="ramp", share=False, dedup="none", order="demo"):
+def install_layout(D, keys, work_dir, palette="ramp", share=False, dedup="none", order="demo", pad=0):
     """demo.install_eyes()'s layout for 2 keyframes, with one of install_animations()' changes switchable.
 
     With the defaults it builds the same DLC as demo.install_eyes() on GIFs
@@ -630,7 +649,8 @@ def install_layout(D, keys, work_dir, palette="ramp", share=False, dedup="none",
     palette "kmeans": install_animations()' palette (index 0 black).
     share: both eyes use the left eye's cels. dedup "quarter": identical
     quarters share a cel, even within a frame. order "halves": 19 frames of
-    each keyframe, as install_animations() plays 2 keyframes.
+    each keyframe, as install_animations() plays 2 keyframes. pad: add that
+    many unused cels at the end. One keyframe shows for the whole animation.
     """
     CEL, S, PAL = D.dlc_sections["CEL"], D.dlc_sections["SPR"], D.dlc_sections["PAL"]
     if palette == "ramp":
@@ -646,8 +666,10 @@ def install_layout(D, keys, work_dir, palette="ramp", share=False, dedup="none",
     CEL.cels = CEL.cels[:2]
     left = _add_cels(CEL.cels, frames, dedup)
     right = left if share else _add_cels(CEL.cels, frames, dedup)
+    CEL.cels.extend([row[:] for row in CEL.cels[0]] for _ in range(pad))
     refs = sorted({w for f in S.frames for w in f[1:8:2]})
     shown = DEMO_ORDER if order == "demo" else [i * len(keys) // FRAMES for i in range(FRAMES)]
+    shown = [min(i, len(keys) - 1) for i in shown]
     for p in range(8, 12):
         _set_frames(S, p, [[(1, refs[0])] * 4] * FRAMES)
     _set_frames(S, 12, [[(c, refs[4]) for c in right[i]] for i in shown])

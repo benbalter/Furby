@@ -33,6 +33,7 @@ SEQUENCE_ENDED = b"\x20\x0e"
 PLAY_REPLY_MS = 1000  # a Furby answers a trigger within about 0.1 s
 PLAY_PATIENCE_MS = 25000  # the longest stock sequence in a scene slot runs about 21 s
 RETRY_FIND_S = 15  # how often to look again for a missing Furby
+HINT_AFTER_SCANS = 3  # empty scans in a row before suggesting the Furbies are singing together
 OFF = (0, 0, 0)
 LIGHT_HZ = 10  # antenna updates a second while a line plays: show.toml's light_hz
 LIGHT_MAX_HZ = 15  # don't flood the Furby, or an ESP32 radio shared by two, with writes
@@ -173,6 +174,22 @@ def clip_light(furby_plan, info):
     return light
 
 
+def plan_order(text, names):
+    """The Furbies' names in the order show.json lists them, from its text.
+
+    MicroPython's dicts don't keep key order, so the board can't take it
+    from json.loads(). Each name is ranked by where its key first appears
+    after "furbies"; a name that can't be found goes last.
+    """
+    start = max(0, text.find('"furbies"'))
+
+    def where(name):
+        i = text.find('"%s":' % name, start)
+        return (i if i >= 0 else len(text), name)
+
+    return sorted(names, key=where)
+
+
 def pick_scene(scenes, present, last=None):
     """A random scene whose Furbies are all connected, avoiding a repeat if possible."""
     ready = [s for s in scenes if all(p.split(".")[0] in present for step in s for p in step_parts(step))]
@@ -306,10 +323,16 @@ class Show:
     greeting so a crowd on the porch doesn't set off greeting after greeting.
     On MicroPython, pass wake=asyncio.ThreadSafeFlag() so a pin interrupt can
     call trigger() and wake the show at once.
+
+    Two Furbies woken together start singing to each other and stop
+    advertising, so the show asks for them one at a time, in order (show.json's,
+    or pass order, e.g. from plan_order() on MicroPython): waiting_for() is
+    the next one to power up, and run() logs what to do whenever that changes.
     """
 
-    def __init__(self, plan, find, sleep=asyncio.sleep, log=print, wake=None):
+    def __init__(self, plan, find, sleep=asyncio.sleep, log=print, wake=None, order=None):
         self.plan = plan
+        self.order = list(order or plan.get("order") or plan["furbies"])
         self.find = find
         self.sleep = sleep
         self.log = log
@@ -320,6 +343,9 @@ class Show:
         self.pressed = False  # a trigger that isn't from the sensor, which always counts
         self.playing = False  # true during a scene, e.g. to light an LED
         self.heartbeat = ticks_ms()  # last sign of progress, for a watchdog
+        self.seen = set()  # every Furby that has connected, to tell a drop from a first power-up
+        self.empty_scans = 0  # scans in a row that connected nobody new
+        self.guided = None  # the power-up state last logged by guide()
 
     def stalled_ms(self):
         """How long since the show last made progress."""
@@ -327,6 +353,50 @@ class Show:
 
     def present(self):
         return {name for name, f in self.furbies.items() if f.connected()}
+
+    def waiting_for(self):
+        """The next Furby to power up: the first in order that isn't connected, or None."""
+        present = self.present()
+        for name in self.order:
+            if name not in present:
+                return name
+        return None
+
+    def waiting_index(self):
+        """waiting_for()'s place in the order (0 for the first Furby), or None."""
+        name = self.waiting_for()
+        return None if name is None else self.order.index(name)
+
+    def stuck(self):
+        """True if the Furbies might be singing together: a missing Furby hasn't turned
+        up for a few scans, or every Furby has dropped and none came back."""
+        if self.waiting_for() is None or not self.empty_scans:
+            return False
+        return self.empty_scans >= HINT_AFTER_SCANS or bool(self.seen and not self.present())
+
+    def guidance(self):
+        """What to do next, for whoever's setting up: which Furby to power up."""
+        name = self.waiting_for()
+        if name is None:
+            return "All Furbies connected: %s." % ", ".join(self.order)
+        here = [n for n in self.order if n in self.present()]
+        if self.stuck():
+            if here:
+                return "Still no %s. Take its batteries out and put them back to wake it." % name
+            return "If they're singing together, take the batteries out of one and power them up one at a time."
+        if not here:
+            return "Put batteries in (or wake) only the %s Furby. Wake the others once it connects." % name
+        others = "%s %s" % (" and ".join(n.capitalize() for n in here), "is" if len(here) == 1 else "are")
+        if name in self.seen:  # it dropped mid-show
+            return "%s dropped. %s still connected; wake %s again." % (name.capitalize(), others, name)
+        return "%s connected. Now power up %s." % (others, name)
+
+    def guide(self):
+        """Log guidance() when the power-up state changes, so it prints once per change."""
+        state = (self.waiting_for(), self.stuck(), len(self.present()))
+        if state != self.guided:
+            self.guided = state
+            self.log(self.guidance())
 
     def trigger(self, sensor=False):
         if not sensor:
@@ -342,6 +412,7 @@ class Show:
 
     async def connect_missing(self):
         known = [f.address for f in self.furbies.values() if f.connected()]
+        added = 0
         for furby in await self.find(known):
             expected = self.plan["furbies"].get(furby.name)
             if expected is None:
@@ -357,8 +428,11 @@ class Show:
                 await furby.disconnect()
                 continue
             self.furbies[furby.name] = furby
+            self.seen.add(furby.name)
+            added += 1
             self.log("Connected to %s" % furby)
             asyncio.create_task(furby.keep_alive())
+        self.empty_scans = 0 if added else self.empty_scans + 1
 
     def light_hz(self):
         """Antenna updates a second during a line, from show.json, kept to 1-15."""
@@ -498,12 +572,17 @@ class Show:
         greeting picks from the greetings, for when someone has just arrived.
         """
         if self.present() != set(self.plan["furbies"]):
-            await self.connect_missing()
+            self.guide()  # say who to power up before the scan, which takes a while
+            try:
+                await self.connect_missing()
+            finally:
+                self.guide()
         scene = pick_scene(self.scenes(greeting), self.present(), self.last)
         if not scene and greeting:  # no greeting playable with who's here: anything will do
             scene = pick_scene(self.plan["scenes"], self.present(), self.last)
-        if not scene:
-            self.log("Waiting for Furbies: have %s, need %s" % (sorted(self.present()), sorted(self.plan["furbies"])))
+        if not scene:  # guide() has already said who's missing
+            if self.waiting_for() is None:
+                self.log("No scene to play with %s" % ", ".join(self.order))
             return RETRY_FIND_S
         try:
             await self.play_scene(scene)

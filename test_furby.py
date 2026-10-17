@@ -931,11 +931,79 @@ lights = [d for d in sent if d[0] == 0x14]
 assert len(lights) > 2, sent
 assert lights[-1] == bytes([0x14, 0, 0, 0]), lights
 assert furbyshow.slot_name(b"\\x73\\x0d____PINK") == "PINK"
+# MicroPython's dicts forget show.json's order, so the board takes it from the text
+import json
+text = '{"scenes": [], "furbies": {"pink": {"clips": {}}, "blue": {"clips": {}}}}'
+assert furbyshow.plan_order(text, json.loads(text)["furbies"]) == ["pink", "blue"]
+show = furbyshow.Show({"furbies": {"blue": {}, "pink": {}}}, find, order=["pink", "blue"])
+assert show.waiting_for() == "pink" and show.waiting_index() == 0, show.waiting_for()
+assert "only the pink Furby" in show.guidance(), show.guidance()
 print("ok")
 """
         result = subprocess.run(["micropython", "-c", script], capture_output=True, text=True, check=False,
                                 env=dict(os.environ, MICROPYPATH=".frozen:."))
         self.assertEqual(result.stdout.strip(), "ok", result.stderr)
+
+
+class TestPowerUp(unittest.TestCase):
+    """The show asks for Furbies one at a time, since two woken together sing and can't be found"""
+
+    def test_plan_order(self):
+        """The board reads who's first from show.json's text, which MicroPython's dicts forget"""
+        import json
+
+        import furbyshow
+        text = json.dumps({"scenes": [["blue.a"]], "furbies": {
+            "pink": {"clips": {"blue": {}}},  # a clip that shares a later Furby's name
+            "blue": {"clips": {}}, "green": {}}})
+        self.assertEqual(furbyshow.plan_order(text, {"green": 1, "blue": 1, "pink": 1}), ["pink", "blue", "green"])
+        self.assertEqual(furbyshow.plan_order(text, ["zed", "pink"]), ["pink", "zed"])  # unknown names go last
+        show = furbyshow.Show({"order": ["blue", "pink"], "furbies": {"pink": {}, "blue": {}}}, None)
+        self.assertEqual(show.waiting_for(), "blue")  # an explicit order in show.json wins
+
+    def test_guided_power_up(self):
+        """porch.py says who to power up next, once per change, including after a drop"""
+        import asyncio
+        import sys
+        from unittest import mock
+
+        import furbyshow
+        import porch
+        clip = {"action": [75, 0, 0, 1], "seconds": 0.0}
+        plan = {"gap": 0, "every": [30, 60], "scenes": [["pink.a", "blue.a"]], "furbies": {
+            "pink": {"clips": {"a": clip}}, "blue": {"clips": {"a": clip}}}}
+        pink, blue = FakeBleFurby("aa", "pink"), FakeBleFurby("bb", "blue")
+        # One scan per run_once while someone's missing; the last repeats
+        scans = [[], [pink], [], [blue], []]
+        log = []
+
+        async def sleep(_):
+            pass
+
+        async def run():
+            show = furbyshow.Show(plan, porch.find, sleep=sleep, log=log.append)
+            for n in range(9):
+                if n == 5:
+                    blue.is_connected = False  # blue drops mid-show
+                if n == 8:
+                    pink.is_connected = False  # then pink: both gone, and neither advertising
+                await show.run_once()
+            for task in [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]:
+                task.cancel()
+
+        with mock.patch.dict(sys.modules, {"bleak": fake_bleak(scans)}), mock.patch("builtins.print"):
+            asyncio.run(run())
+        # Each said once, when it changed, though the show scanned nine times
+        said = [line for line in log if not line.startswith(("Connected", "Scene"))]
+        self.assertEqual(said, [
+            "Put batteries in (or wake) only the pink Furby. Wake the others once it connects.",
+            "Pink is connected. Now power up blue.",
+            "All Furbies connected: pink, blue.",
+            "Blue dropped. Pink is still connected; wake blue again.",
+            "Still no blue. Take its batteries out and put them back to wake it.",  # after 3 empty scans
+            "If they're singing together, take the batteries out of one and power them up one at a time.",
+        ])
+        self.assertEqual(len(blue.triggers), 2)  # the scene played while both were connected
 
 
 class TestFlash(unittest.TestCase):
@@ -1258,6 +1326,49 @@ class TestFirmware(unittest.TestCase):
         with mock.patch.object(self.main.asyncio, "sleep", no_sleep):
             asyncio.run(self.main.watchdog(FakeShow(), self.main.machine.WDT(self.main.WATCHDOG_MS)))
         self.assertEqual(self.feeds, 2)
+
+    def test_status_light(self):
+        """The LED blinks once for the first Furby to power up, twice for the second, and so on"""
+        import asyncio
+        from unittest import mock
+
+        class FakeShow:
+            playing, index, is_stuck = False, 0, False
+
+            def waiting_index(self):
+                return self.index
+
+            def stuck(self):
+                return self.is_stuck
+
+        show = FakeShow()
+        pattern = self.main.led_pattern
+        self.assertEqual(pattern(show), (1, 1, 0, 0) + (0,) * 8)  # 1 blink: power up the first
+        show.index = 1
+        self.assertEqual(pattern(show), (1, 1, 0, 0, 1, 1, 0, 0) + (0,) * 8)  # 2 blinks: the second
+        show.is_stuck = True
+        self.assertEqual(pattern(show), (1, 0))  # flicker: they may be singing together
+        show.playing = True
+        self.assertEqual(pattern(show), (1,))  # solid during a scene, as before
+        show.playing, show.index = False, None
+        self.assertEqual(pattern(show), (0,))  # off once everyone's connected
+
+        # status_light steps through the pattern, and starts a new one from its first blink
+        led = self.main.machine.Pin(self.main.LED_PIN, self.main.machine.Pin.OUT)
+        levels = []
+        show.index, show.is_stuck = 1, False
+
+        async def sleep(_):
+            levels.append(led.value())
+            if len(levels) == 3:
+                show.index = 0  # the first Furby dropped: blink once
+            if len(levels) == 17:
+                raise asyncio.CancelledError
+
+        with mock.patch.object(self.main.asyncio, "sleep", sleep):
+            with self.assertRaises(asyncio.CancelledError):
+                asyncio.run(self.main.status_light(show, led))
+        self.assertEqual(levels, [1, 1, 0] + [1, 1, 0, 0] + [0] * 8 + [1, 1])
 
     @unittest.skipUnless(shutil.which("micropython"), "micropython not installed")
     def test_compiles_for_micropython(self):

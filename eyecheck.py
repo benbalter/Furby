@@ -26,8 +26,8 @@ hardware slot in the attribute word, loaded from that layer's playlist
 
 It also checks the DLC against the envelope custom eyes are known to work in
 on a Furby (16 SPR playlists, a stock-sized SPR). probe.dlc broke that: it had
-32 playlists, and the Furby drew probe.dlc's frames and palette over the cels
-of the DLC flashed before it (--stale-cel renders that prediction).
+32 playlists, and what the Furby showed matches its frames and palette drawn
+over an earlier DLC's cels (--stale-cel renders that prediction).
 
 Prior art: furby-connect-eyes-extract (lib-fluff-so, no stated license; its
 compositing rules reimplemented here) and furby-connect-emulator (thatuser84,
@@ -63,9 +63,11 @@ RULES = ("layer", "slot")
 #   spooky_eyes' single-animation DLCs all have 16 playlists and a 5,460-byte
 #   SPR, and draw their eyes.
 # - probe.dlc (32 playlists, a 20,820-byte SPR, 263 KB) showed blue, green and
-#   red arcs in a cross. Composing its frames and palette over the previous
-#   (demon) DLC's cels reproduces that, so its own CEL section never loaded.
-#   Why is open: the playlist count, the SPR size or the file size (the
+#   red arcs in a cross (described, not compared pixel for pixel). Composing
+#   its frames and palette over an earlier DLC's cels (the demon eyes, or
+#   Hasbro's stock eye and chilli) gives that; its own cels give clean digits.
+#   So, inferred: its CEL section never replaced the old one. What triggers
+#   that is open: the playlist count, the SPR size or the file size (the
 #   biggest custom DLC known to show its eyes is 239 KB). eyesa.dlc (32
 #   playlists, 180 KB) separates playlists from file size; probe_long.dlc (16
 #   playlists, a 10,476-byte SPR) separates playlists from SPR size.

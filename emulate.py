@@ -24,8 +24,9 @@ replace them:
 
     {"motors": {"e005": 2.4, "c403": 18.0}, "actions": {"75-0-0-2": 3.1}}
 
-Pause and delay words (0x1xxx) are read as 10 ms units, an assumption that
-puts the stock sequences inside the measured ranges.
+Pause and delay words (0x1xxx) are read as 10 ms units, an assumption: it
+gives the scene slots' delays 0-5 s for 0xe0xx and 5-15 s for 0xc4xx, which
+doesn't contradict the measured ranges but hasn't been timed on its own.
 
 When a DLC goes active, its eyes are checked with eyecheck: one outside the
 envelope keeps the previous DLC's cels, as probe.dlc did on a real Furby.

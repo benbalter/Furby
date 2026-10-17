@@ -26,6 +26,7 @@ Halloween show pipeline:
 uv run halloween.py [--skip-missing]   # halloween/show.toml → build/halloween/{pink,blue}.dlc + show.json
 uv run porch.py --list | --clip pink.cackle | --scene 0   # run/test the show from a computer
 uv run porch.py --rehearse [--scene N]  # play scenes on this computer's speakers; no Furbies needed
+uv run flash.py build/halloween/pink.dlc  # flash a DLC from this computer (one Furby awake, no reset needed)
 firmware/deploy.sh                      # copy the show to an ESP32 running MicroPython (uses uvx mpremote/mpy-cross)
 uv run spooky_eyes.py --theme pumpkin   # standalone eyes DLC
 ```
@@ -62,10 +63,7 @@ uv run spooky_eyes.py --theme pumpkin   # standalone eyes DLC
 - `freesound_fetch.py` fetches CC0-only effects. It reads `FREESOUND_API_KEY` from the environment (run it under `op run`).
 - The older `convert*.py` scripts need the Windows-only A1800.DLL.
 
-**Flashing** uses [benbalter/furby-web-bluetooth](https://github.com/benbalter/furby-web-bluetooth) "Upload Custom":
-- serve it over http, not `file://`;
-- reset the Furby before each upload, one upload per reset;
-- `?packetDelay=<ms>` slows the upload if the Furby times out.
+**Flashing.** `uv run flash.py <file>.dlc` (with only that Furby awake, or `--address`) does what [benbalter/furby-web-bluetooth](https://github.com/benbalter/furby-web-bluetooth) "Upload Custom" does, from the terminal: `0x50` announce, 20-byte FileWrite packets at 15 ms with Nordic packet acks (`0x09`) for flow control, then `0x73` checksum check, `0x60` load, `0x61` activate. It deletes the stored DLCs first with `0x74`, which replaced (on a real Furby) the tongue-and-tail reset that FurBLE needs before each upload. In FurBLE: serve it over http, not `file://`; reset before each upload; `?packetDelay=<ms>` slows it down.
 
 ## Conventions
 

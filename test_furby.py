@@ -588,6 +588,84 @@ print("ok")
         self.assertEqual(result.stdout.strip(), "ok", result.stderr)
 
 
+class TestFlash(unittest.TestCase):
+    """flash.py uploads the way FurBLE does, against a stand-in Furby"""
+
+    def test_filename(self):
+        import flash
+        self.assertEqual(flash.furby_filename("build/halloween/pink.dlc"), "____PINK.DLC")
+        self.assertEqual(flash.announce_command(0x0332F6, "____PINK.DLC").hex(),
+                         "50000332f6025f5f5f5f50494e4b2e444c430000")  # what FurBLE sent for pink.dlc
+        with self.assertRaises(SystemExit):
+            flash.furby_filename("toolongname.dlc")
+
+    def test_flash(self):
+        import asyncio
+        import zlib
+
+        import flash
+        import furbyshow
+        data = bytes(range(256)) * 5
+        checksum = zlib.adler32(data)
+
+        class FakeFurby:
+            """Starts with an old DLC active in slot 13; stores and activates the upload in slot 12."""
+
+            def __init__(self):
+                self.filled, self.active, self.received, self.writes = {13}, {13}, b"", []
+                self.notify = {}
+
+            async def start_notify(self, uuid, cb):
+                self.notify[uuid] = cb
+
+            def say(self, data):
+                self.notify[furbyshow.GP_LISTEN](None, bytes(data))
+
+            def info(self):
+                bits = lambda s: sum(1 << i for i in s)  # noqa: E731
+                f, a = bits(self.filled), bits(self.active)
+                return bytes([0x72, 0, 0, f >> 8, f & 0xFF, 0, 0, a >> 8, a & 0xFF])
+
+            async def write_gatt_char(self, uuid, data, response=False):
+                self.writes.append((uuid, bytes(data)))
+                if uuid == flash.FILE_WRITE:
+                    self.received += data
+                    if len(self.received) == len(data):
+                        self.filled.add(12)
+                        self.say([0x24, 5])
+                    return
+                if uuid != furbyshow.GP_WRITE:
+                    return
+                cmd = data[0]
+                if cmd == 0x72:
+                    self.say(self.info())
+                elif cmd == 0x62:
+                    self.active.discard(data[1])
+                    self.say([0xDC, data[1], 0])
+                elif cmd == 0x74:
+                    self.filled.discard(data[1])
+                    self.say([0x74, data[1]])
+                elif cmd == 0x50:
+                    self.say([0x24, 2])
+                elif cmd == 0x73:
+                    self.say(bytes([0x73, data[1]]) + b"____PINK" + bytes(3) + checksum.to_bytes(4, "big"))
+                elif cmd == 0x60:
+                    self.loaded = data[1]
+                    self.say([0xDC, data[1], 1])
+                elif cmd == 0x61:
+                    self.active = {self.loaded}
+                    self.say([0xDC, self.loaded, 2])
+
+        furby = FakeFurby()
+        logs = []
+        asyncio.run(flash.Flasher(furby, log=logs.append, packet_delay=0).flash(data, "____PINK.DLC"))
+        self.assertEqual(furby.received, data)
+        self.assertEqual(furby.active, {12})
+        self.assertNotIn(13, furby.filled)  # the old DLC was deleted first, instead of a reset
+        self.assertEqual(furby.writes[-1], (furbyshow.GP_WRITE, furbyshow.antenna_command((0, 255, 0))))
+        self.assertTrue(any("slot 12" in line for line in logs))
+
+
 class TestRehearsal(unittest.TestCase):
     """porch.py --rehearse plays each step's source clip, in order, with no Furbies"""
 

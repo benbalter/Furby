@@ -298,7 +298,15 @@ A DLC only changes what plays when a phone or computer triggers an action over B
 
 ## Flashing a DLC
 
-The hosted FurBLE pages only flash their bundled DLCs. [benbalter/furby-web-bluetooth](https://github.com/benbalter/furby-web-bluetooth) adds "Upload Custom":
+From a terminal, with just one Furby awake:
+
+```bash
+uv run flash.py build/halloween/pink.dlc
+```
+
+[`flash.py`](flash.py) deletes the DLCs already on the Furby, uploads the new one (a 200 KB DLC takes a little over 2 minutes), checks the checksum the Furby stores, and activates it. The antenna turns green when it's done, or red with a reason if something failed. There's no need to reset the Furby first. `uv run flash.py --list` shows the Furbies in range and their DLCs, and `--address` picks one when more than one is awake. If uploads time out, try `--packet-delay 30`.
+
+Or from a browser: the hosted FurBLE pages only flash their bundled DLCs, but [benbalter/furby-web-bluetooth](https://github.com/benbalter/furby-web-bluetooth) adds "Upload Custom":
 
 1. Serve it over http (`python3 -m http.server` in its folder) and open `furble.html` in Chrome. Web Bluetooth won't load files from a `file://` page.
 2. Reset the Furby: hold it upside down, hold the tongue, and pull the tail until the eyes go dark. Upload one DLC per reset.

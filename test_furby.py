@@ -431,6 +431,143 @@ class TestHalloween(unittest.TestCase):
         with open(os.path.join(self.temp_dir, "pink.dlc"), "rb") as f:
             self.assertEqual(plan["furbies"]["pink"]["checksum"], zlib.adler32(f.read()))
 
+    def test_assign_slots_keeps_clips_where_they_were(self):
+        """Adding, renaming and removing clips leaves the other clips on their actions"""
+        import halloween
+        slots = [(75, 0, n, 0) for n in range(6)]
+        s = ["75-0-%d-0" % n for n in range(6)]
+        log = []
+
+        def assign(entry, defined, present=None):
+            return halloween.assign_slots(entry, defined, defined if present is None else present, slots, "pink",
+                                          log.append)  # fmt: skip
+        # No lock: name order, as halloween.py did before it had one
+        codes, entry = assign(None, {"b", "c", "d"})
+        self.assertEqual(entry["clips"], {"b": s[0], "c": s[1], "d": s[2]})
+        self.assertEqual(codes["b"], (75, 0, 0, 0))
+        # A new clip that sorts first takes the first free slot; nothing else moves
+        _, entry = assign(entry, {"a", "b", "c", "d"})
+        self.assertEqual(entry["clips"], {"a": s[3], "b": s[0], "c": s[1], "d": s[2]})
+        # Renaming c: c's slot is retired, and the new name takes a fresh slot rather than it
+        _, entry = assign(entry, {"a", "b", "cee", "d"})
+        self.assertEqual(entry["clips"], {"a": s[3], "b": s[0], "cee": s[4], "d": s[2]})
+        self.assertEqual(entry["retired"], {"c": s[1]})
+        # Removing d retires it too; bringing c back returns it to its old slot
+        _, entry = assign(entry, {"a", "b", "c", "cee"})
+        self.assertEqual(entry["clips"], {"a": s[3], "b": s[0], "c": s[1], "cee": s[4]})
+        self.assertEqual(entry["retired"], {"d": s[2]})
+        # A clip whose file is missing keeps its slot, so making it later moves nothing
+        _, entry = assign(entry, {"a", "b", "c", "cee"}, present={"a", "b"})
+        self.assertEqual(entry["clips"], {"a": s[3], "b": s[0], "c": s[1], "cee": s[4]})
+        # When only retired slots are left, a new clip takes one and the tombstone goes
+        _, entry = assign(entry, {"a", "b", "c", "cee", "e", "f"})
+        self.assertEqual(entry["clips"]["e"], s[5])
+        self.assertEqual(entry["clips"]["f"], s[2])
+        self.assertEqual(entry["retired"], {})
+        self.assertEqual(log, [])
+        # A slot that's no longer a quick slot moves, and says so
+        _, entry = assign({"clips": {"a": "75-0-9-9", "b": s[0]}}, {"a", "b"})
+        self.assertEqual(entry["clips"], {"a": s[1], "b": s[0]})
+        self.assertIn("75-0-9-9 is no longer a quick slot", log[0])
+
+    def test_changes_message(self):
+        """The build says which Furbies to reflash, comparing checksums with the last show.json"""
+        import halloween
+        old = {"furbies": {"pink": {"checksum": 1}, "blue": {"checksum": 2}}, "scenes": []}
+        self.assertIn("First build", halloween.changes_message(None, old))
+        self.assertEqual(halloween.changes_message(old, old), "Nothing changed since the last build.")
+        new = {"furbies": {"pink": {"checksum": 1}, "blue": {"checksum": 2}}, "scenes": [["pink.a"]]}
+        self.assertIn("No DLC changed: just redeploy show.json", halloween.changes_message(old, new))
+        new = {"furbies": {"pink": {"checksum": 9}, "blue": {"checksum": 2}}, "scenes": []}
+        msg = halloween.changes_message(old, new)
+        self.assertTrue(msg.startswith("Only pink.dlc changed: reflash pink and redeploy show.json"), msg)
+        self.assertIn("--only pink", msg)
+        new = {"furbies": {"pink": {"checksum": 9}, "blue": {"checksum": 8}}, "scenes": []}
+        self.assertIn("pink.dlc and blue.dlc changed: reflash both", halloween.changes_message(old, new))
+
+    def test_build_show_with_lock(self):
+        """With a lock, adding a clip to one Furby leaves the other's DLC alone and moves no clip"""
+        import contextlib
+        import io
+        import json
+
+        import halloween
+        clip = "./audio/new_audio/darkside_wav.a18"
+        show = {
+            "show": {"gap": 0.5, "every": [30, 60]},
+            "furbies": {
+                "pink": {"eyes": ["demon"], "clips": {"b": clip, "c": clip}},
+                "blue": {"eyes": ["pumpkin"], "clips": {"x": clip}},
+            },
+            "scenes": [{"steps": ["pink.b", "blue.x"]}, {"steps": ["pink.c"]}],
+        }
+        lock = os.path.join(self.temp_dir, "slots.lock.json")
+
+        def build():
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                with open(halloween.build_show(show, self.temp_dir, lock_path=lock)) as f:
+                    return json.load(f), out.getvalue()
+        first, out = build()
+        self.assertIn("First build", out)
+        self.assertTrue(os.path.exists(lock))
+        show["furbies"]["pink"]["clips"]["a"] = "./audio/new_audio/imperial_march-16000_wav.a18"  # sorts first
+        second, out = build()
+        for k in ("b", "c"):
+            self.assertEqual(second["furbies"]["pink"]["clips"][k]["action"], first["furbies"]["pink"]["clips"][k]["action"])
+        self.assertEqual(second["furbies"]["blue"]["checksum"], first["furbies"]["blue"]["checksum"])
+        self.assertIn("Only pink.dlc changed: reflash pink and redeploy show.json", out)
+        self.assertIn("pink.dlc: ", out)  # the size report
+        with open(lock) as f:
+            self.assertEqual(set(json.load(f)["furbies"]["pink"]["clips"]), {"a", "b", "c"})
+        # --reshuffle puts the clips back in name order
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            with open(halloween.build_show(show, self.temp_dir, lock_path=lock, reshuffle=True)) as f:
+                third = json.load(f)
+        slots = [list(c) for c in halloween.quick_slots(dlc("./dlc/dlc2/tu003410.dlc"))]
+        self.assertEqual([third["furbies"]["pink"]["clips"][k]["action"] for k in "abc"], slots[:3])
+
+    def test_dlc_budget(self):
+        """The size report's parts add up to the DLC, and it says what to cut when it's too big"""
+        import halloween
+        import spooky_eyes
+        D = dlc("./dlc/dlc2/tu003410.dlc")
+        slots = halloween.quick_slots(D)
+        codes = {"a": slots[0], "b": slots[1]}
+        path = spooky_eyes.build(
+            "demon",
+            clips={slots[0]: "./audio/new_audio/darkside_wav.a18", slots[1]: "./audio/new_audio/imperial_march-16000_wav.a18"},
+            out_dir=self.temp_dir,
+            name="pink",
+            eyes={slots[1]: "ghost"},
+        )
+        budget = halloween.dlc_budget(path, codes, ["demon", "ghost"])
+        self.assertEqual(budget["total"], os.path.getsize(path))
+        self.assertEqual(sum(budget["clips"].values()) + budget["eyes"] + budget["base"], budget["total"])
+        built = dlc(path)
+        for k, code in codes.items():
+            track = spooky_eyes._tracks(built, code)[0]
+            self.assertEqual(budget["clips"][k], len(built.dlc_sections["AMF"].tracks[track]))
+        self.assertEqual(set(budget["themes"]), {"demon", "ghost"})
+        self.assertGreater(budget["themes"]["demon"], 20_000)  # each theme is about 37 KB
+        self.assertLess(sum(budget["themes"].values()), budget["eyes"])
+        report = halloween.budget_report("pink", budget)
+        self.assertIn("pink.dlc: %d of 350 KB" % round(budget["total"] / 1000), report)
+        self.assertLessEqual(len(report.splitlines()), 4)
+        # Two themes now cost about 150 KB (each eye has its own cels), so judge the warning against a roomy limit
+        self.assertNotIn("Warning", halloween.budget_report("pink", budget, limit=budget["total"] * 2))
+        self.assertIn("Warning", halloween.budget_report("pink", budget, limit=budget["total"] + 1000))
+        # Over the limit, it suggests clips not in any scene first, then the largest
+        tight = budget["total"] - 1000
+        over = halloween.budget_report("pink", budget, unused={"a"}, limit=tight)
+        self.assertIn("OVER", over)
+        self.assertIn("drop a (in no scene", over)
+        biggest = max(budget["clips"], key=budget["clips"].get)
+        over = halloween.budget_report("pink", budget, limit=tight)
+        self.assertIn("cut %s by 0.5 s" % biggest, over)
+        self.assertIn("drop an eye theme", over)
+
     def test_envelope(self):
         """A clip's envelope is one loudness digit per 100 ms of what the Furby plays"""
         import halloween

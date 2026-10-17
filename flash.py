@@ -12,7 +12,7 @@ antenna turns green when the DLC is active, red if anything failed.
 
 USAGE:
     uv run flash.py build/halloween/pink.dlc
-    uv run flash.py build/halloween/blue.dlc --address 6761885F-...   # when several Furbies are on
+    uv run flash.py build/halloween/blue.dlc --address <from --list>  # when several Furbies are on
     uv run flash.py pink.dlc --packet-delay 30                         # if uploads time out
 
 Only one Furby should be awake, unless you pass --address; --list shows the

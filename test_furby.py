@@ -100,6 +100,15 @@ class TestDLCBuilding(unittest.TestCase):
         D2 = dlc(output_path)
         self.assertEqual(list(D1.dlc_sections.keys()), list(D2.dlc_sections.keys()))
 
+    def test_roundtrip_identical(self):
+        """The stock DLC rebuilds byte for byte (SPR counts its playlists rather than assuming 16)"""
+        D = dlc(self.test_dlc_path)
+        self.assertEqual(len(D.dlc_sections["SPR"].frame_playlists), 16)
+        output_path = os.path.join(self.temp_dir, "output.dlc")
+        D.build(output_path)
+        with open(self.test_dlc_path, "rb") as f1, open(output_path, "rb") as f2:
+            self.assertEqual(f1.read(), f2.read())
+
 
 class TestPython3Compatibility(unittest.TestCase):
     """Test Python 3 specific compatibility"""
@@ -196,7 +205,105 @@ class TestCustomEyes(unittest.TestCase):
         for theme in spooky_eyes.THEMES:
             output_path = spooky_eyes.build(theme, out_dir=self.temp_dir)
             self.assertLess(os.path.getsize(output_path), spooky_eyes.MAX_UPLOAD)
-            self.assertEqual(len(dlc(output_path).dlc_sections["CEL"].cels), 18)
+            # transparent + blank cels, then at most 4 quarters per keyframe (both eyes share them)
+            cels = len(dlc(output_path).dlc_sections["CEL"].cels)
+            self.assertLessEqual(cels, 2 + 4 * len(spooky_eyes.THEMES[theme]["keys"]))
+            self.assertTrue(os.path.exists(os.path.join(self.temp_dir, theme, "eyes_%s.gif" % theme)))
+
+    def test_one_animation_keeps_demo_layout(self):
+        """One theme lays out animation 1 exactly as demo.install_eyes() does, which has run on a Furby"""
+        import spooky_eyes
+        stock = dlc(self.test_dlc_path)
+        D = dlc(spooky_eyes.build("demon", out_dir=self.temp_dir))
+        S, S0 = D.dlc_sections["SPR"], stock.dlc_sections["SPR"]
+        self.assertEqual(len(S.frame_playlists), 16)
+        self.assertEqual([p["layer"] for p in S.frame_playlists], [p["layer"] for p in S0.frame_playlists])
+        for p in list(range(8)) + [14, 15]:  # animation 0 and the top layer are untouched
+            self.assertEqual([S.frames[f] for f in S.frame_playlists[p]["frame_indices"]],
+                             [S0.frames[f] for f in S0.frame_playlists[p]["frame_indices"]])
+        for p, ref in ((8, 4338), (9, 4338), (10, 4338), (11, 4338), (12, 6386), (13, 5362)):
+            frames = [S.frames[f] for f in S.frame_playlists[p]["frame_indices"]]
+            self.assertEqual(len(frames), 38)
+            self.assertEqual({w for f in frames for w in f[1:8:2]}, {ref})
+            if p < 12:
+                self.assertEqual({w for f in frames for w in f[0:8:2]}, {1})  # blanked
+        # the frames follow the timeline, and both eyes show the same cels
+        right = [S.frames[f][0:8:2] for f in S.frame_playlists[12]["frame_indices"]]
+        left = [S.frames[f][0:8:2] for f in S.frame_playlists[13]["frame_indices"]]
+        self.assertEqual(right, left)
+        self.assertEqual(len({tuple(f) for f in right}), 3)
+        self.assertEqual(D.dlc_sections["PAL"].palettes[4], D.dlc_sections["PAL"].palettes[5])
+        for code in spooky_eyes.DEMO_ACTIONS:
+            self.assertEqual(set(spooky_eyes.eye_words(D, code)), {0x8401})
+
+    def test_several_animations(self):
+        """Each theme gets its own animation, a copy of animation 1's layout, and each clip shows its own"""
+        import spooky_eyes
+        stock = dlc(self.test_dlc_path)
+        slots = spooky_eyes.scene_slots(stock)
+        clip = "./audio/new_audio/darkside_wav.a18"
+        eyes = {slots[0]: "storm", slots[1]: "ghost", slots[2]: "demon"}
+        path = spooky_eyes.build("demon", clips=dict.fromkeys(slots[:4], clip), eyes=eyes, out_dir=self.temp_dir)
+        self.assertLess(os.path.getsize(path), spooky_eyes.MAX_UPLOAD)
+        D = dlc(path)
+        S = D.dlc_sections["SPR"]
+        self.assertEqual(len(S.frame_playlists), 8 + 3 * 8)  # animation 0, then demon, ghost, storm
+        stock_layers = [p["layer"] for p in stock.dlc_sections["SPR"].frame_playlists[8:16]]
+        for n in range(3):
+            group = S.frame_playlists[8 + 8 * n:16 + 8 * n]
+            self.assertEqual([p["layer"] for p in group], stock_layers)
+            self.assertEqual([p["framecount"] for p in group], [38] * 6 + [1, 1])
+        # demon is animation 1 (0x8401), the main theme; the rest follow in name order
+        expected = {slots[0]: 0x8403, slots[1]: 0x8402, slots[2]: 0x8401, slots[3]: 0x8401}
+        for code, word in expected.items():
+            self.assertEqual(set(spooky_eyes.eye_words(D, code)), {word})
+        # three different animations, each following its theme's timeline
+        rendered = {w: spooky_eyes.render(D, w) for w in (0x8401, 0x8402, 0x8403)}
+        self.assertEqual(len({f.tobytes() for frames in rendered.values() for f in frames}), 9)
+        for word, theme in ((0x8401, "demon"), (0x8402, "ghost"), (0x8403, "storm")):
+            order = spooky_eyes.timeline(theme)
+            for i, j in enumerate(order):
+                self.assertEqual(rendered[word][i].tobytes(), rendered[word][order.index(j)].tobytes())
+            self.assertEqual(len({f.tobytes() for f in rendered[word]}), len(set(order)))
+
+    def test_eye_frames(self):
+        """Animations can be longer than the stock 38 frames, up to the firmware's longest"""
+        import spooky_eyes
+        D = dlc(spooky_eyes.build("storm", out_dir=self.temp_dir, frames=76))
+        for p in range(8, 14):
+            self.assertEqual(D.dlc_sections["SPR"].frame_playlists[p]["framecount"], 76)
+        self.assertEqual(len(spooky_eyes.render(D)), 76)
+        with self.assertRaises(SystemExit):
+            spooky_eyes.build("storm", out_dir=self.temp_dir, frames=200)
+        with self.assertRaises(SystemExit):
+            spooky_eyes.build("nope", out_dir=self.temp_dir)
+
+    def test_probe(self):
+        """The probe DLCs put numbered test animations on the actions they say to trigger"""
+        import spooky_eyes
+        paths = spooky_eyes.build_probe(out_dir=self.temp_dir)
+        self.assertEqual([os.path.basename(p) for p in paths], list(spooky_eyes.PROBE))
+        for path, (anims, actions) in zip(paths, spooky_eyes.PROBE.values(), strict=True):
+            self.assertLess(os.path.getsize(path), spooky_eyes.MAX_UPLOAD)
+            D = dlc(path)
+            self.assertEqual(len(D.dlc_sections["SPR"].frame_playlists), 8 + 8 * len(anims))
+            for code, n in actions.items():
+                digits, frames, _ = anims[n]
+                self.assertEqual(set(spooky_eyes.eye_words(D, code)), {0x8401 + n})
+                rendered = spooky_eyes.render(D, 0x8401 + n)
+                self.assertEqual(len(rendered), frames)
+                self.assertEqual(len({f.tobytes() for f in rendered}), len(digits))
+        # every animation in probe.dlc looks different, so one can't pass for another
+        D = dlc(paths[0])
+        frames = [{f.tobytes() for f in spooky_eyes.render(D, 0x8401 + n)} for n in range(3)]
+        self.assertFalse(frames[0] & frames[1] or frames[0] & frames[2] or frames[1] & frames[2])
+
+    def test_previews(self):
+        """--preview writes a GIF of the timeline and a sheet of the keyframes"""
+        import spooky_eyes
+        path = spooky_eyes.preview("hypno", self.temp_dir)
+        self.assertTrue(os.path.exists(path))
+        self.assertTrue(os.path.exists(os.path.join(self.temp_dir, "hypno.png")))
 
     def test_spooky_eyes_with_audio(self):
         """The default song and sting still fit under the upload limit"""
@@ -270,10 +377,50 @@ class TestHalloween(unittest.TestCase):
                 self.assertGreater(info["seconds"], 1)
         actions = [tuple(c["action"]) for c in plan["furbies"]["pink"]["clips"].values()]
         self.assertEqual(len(set(actions)), 2)
+        # pink's theme picks its mix: clips a and b show demon (animation 1) and bloodshot (2)
+        pink = dlc(os.path.join(self.temp_dir, "pink.dlc"))
+        for name, theme, word in (("a", "demon", 0x8401), ("b", "bloodshot", 0x8402)):
+            info = plan["furbies"]["pink"]["clips"][name]
+            self.assertEqual(info["eyes"], theme)
+            self.assertEqual(set(spooky_eyes.eye_words(pink, tuple(info["action"]))), {word})
         # The checksum the Furby will report for each DLC
         import zlib
         with open(os.path.join(self.temp_dir, "pink.dlc"), "rb") as f:
             self.assertEqual(plan["furbies"]["pink"]["checksum"], zlib.adler32(f.read()))
+
+    def test_clip_eyes(self):
+        """Clips take turns through the eyes list in name order, unless they pick their own"""
+        import halloween
+        clips = {c: {"path": c} for c in ("d", "a", "c", "b")}
+        clips["c"]["eyes"] = "hypno"
+        main, eyes = halloween.clip_eyes({"eyes": ["storm", "ghost"]}, clips)
+        self.assertEqual(main, "storm")
+        self.assertEqual(eyes, {"a": "storm", "b": "ghost", "d": "storm", "c": "hypno"})
+        # a theme and no list: that theme's mix, led by the theme
+        main, eyes = halloween.clip_eyes({"theme": "demon"}, clips)
+        self.assertEqual((main, eyes["a"], eyes["b"]), ("demon", "demon", "bloodshot"))
+        # one_eye_animation: every clip shows the main theme
+        self.assertEqual(halloween.clip_eyes({"eyes": "storm"}, clips, one=True), ("storm", dict.fromkeys(clips, "storm")))
+
+    def test_one_eye_animation(self):
+        """one_eye_animation builds only animation 1, the layout that has run on a Furby"""
+        import json
+
+        import halloween
+        import spooky_eyes
+        clip = "./audio/new_audio/darkside_wav.a18"
+        show = {
+            "show": {"gap": 0.5, "every": [30, 60], "one_eye_animation": True},
+            "furbies": {"pink": {"eyes": ["storm", "demon"], "clips": {"a": clip, "b": {"path": clip, "eyes": "ghost"}}}},
+            "scenes": [{"steps": ["pink.a", "pink.b"]}],
+        }
+        with open(halloween.build_show(show, self.temp_dir)) as f:
+            plan = json.load(f)
+        D = dlc(os.path.join(self.temp_dir, "pink.dlc"))
+        self.assertEqual(len(D.dlc_sections["SPR"].frame_playlists), 16)
+        for info in plan["furbies"]["pink"]["clips"].values():
+            self.assertEqual(info["eyes"], "storm")
+            self.assertEqual(set(spooky_eyes.eye_words(D, tuple(info["action"]))), {0x8401})
 
     @unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg not installed")
     def test_snippets_and_optional_clips(self):

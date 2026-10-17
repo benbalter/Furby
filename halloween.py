@@ -91,7 +91,11 @@ def load_show(path="./halloween/show.toml"):
 
 
 def clip_spec(value):
-    """A clip from show.toml: a path, or a table with path and optional start, seconds, before and optional."""
+    """A clip from show.toml: a path, or a table with path and optional start, seconds, before and optional.
+
+    A table can also have text, the words of a voice line, which voices.py reads;
+    it doesn't change the build.
+    """
     spec = {"path": value} if isinstance(value, str) else dict(value)
     spec.setdefault("optional", False)
     return spec

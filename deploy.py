@@ -267,7 +267,8 @@ def main(args, ask=input, log=print, scan=flash.scan, connect=connect, run=subpr
     if not args.no_build:
         import halloween
 
-        halloween.build_show(halloween.load_show(args.toml), os.path.dirname(args.show), args.skip_missing)
+        halloween.build_show(halloween.load_show(args.toml), os.path.dirname(args.show), args.skip_missing,
+                             lock_path=halloween.lock_path_for(args.toml))  # fmt: skip
     if not os.path.exists(args.show):
         raise DeployError("No %s yet. Run this without --no-build to build the show." % args.show)
     with open(args.show) as f:

@@ -1,0 +1,42 @@
+{
+  "about": "Which 75 action each clip plays on, kept from build to build by halloween.py so a clip doesn't move when others are added or removed. retired: clips no longer in show.toml, which get their slot back if re-added. Commit it with show.toml; halloween.py --reshuffle starts it again.",
+  "furbies": {
+    "blue": {
+      "clips": {
+        "door": "75-0-0-2",
+        "ghostbusters": "75-0-3-2",
+        "gotcha": "75-0-3-5",
+        "halloween": "75-0-4-0",
+        "happy": "75-0-4-1",
+        "hascandy": "75-0-4-2",
+        "hi": "75-0-4-5",
+        "scared": "75-0-4-6",
+        "song": "75-0-4-7",
+        "takeone": "75-0-5-3",
+        "thanks": "75-0-5-5",
+        "trickortreat": "75-0-5-6",
+        "what": "75-0-6-5",
+        "whocall": "75-0-6-6"
+      },
+      "retired": {}
+    },
+    "pink": {
+      "clips": {
+        "boo": "75-0-0-2",
+        "cackle": "75-0-3-2",
+        "cackle2": "75-0-3-5",
+        "dare": "75-0-4-0",
+        "ghostbusters": "75-0-4-1",
+        "midnight": "75-0-4-2",
+        "moan": "75-0-4-5",
+        "scariest": "75-0-4-6",
+        "scream": "75-0-4-7",
+        "toccata": "75-0-5-3",
+        "trick": "75-0-5-5",
+        "watching": "75-0-5-6",
+        "yourcandy": "75-0-6-5"
+      },
+      "retired": {}
+    }
+  }
+}

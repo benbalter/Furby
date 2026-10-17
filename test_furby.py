@@ -283,7 +283,7 @@ class TestCustomEyes(unittest.TestCase):
         import spooky_eyes
         paths = spooky_eyes.build_probe(out_dir=self.temp_dir)
         self.assertEqual([os.path.basename(p) for p in paths], list(spooky_eyes.PROBE))
-        for path, (anims, actions, how) in zip(paths, spooky_eyes.PROBE.values(), strict=True):
+        for path, (anims, actions, (how, _)) in zip(paths, spooky_eyes.PROBE.values(), strict=True):
             self.assertLessEqual(len(os.path.basename(path)), 12)  # the Furby keeps 8.3 names
             self.assertLess(os.path.getsize(path), 200000)
             D = dlc(path)
@@ -299,6 +299,34 @@ class TestCustomEyes(unittest.TestCase):
             if how == "multi":  # each of eyesa's animations looks unlike the others
                 frames = [{f.tobytes() for f in spooky_eyes.render(D, 0x8401 + n)} for n in range(3)]
                 self.assertFalse(frames[0] & frames[1] or frames[0] & frames[2] or frames[1] & frames[2])
+
+    def test_probe_layout_matches_demo(self):
+        """install_layout() with no changes builds exactly what demo.install_eyes() builds, so each probe changes one thing"""
+        from PIL import Image
+
+        import spooky_eyes
+        from demo import install_eyes
+        keys = [spooky_eyes._digit(d, spooky_eyes.RED).resize((128, 128), Image.LANCZOS) for d in (1, 2)]
+        built = []
+        for how in ("demo", "layout"):
+            D = dlc(self.test_dlc_path)
+            work = os.path.join(self.temp_dir, how)
+            if how == "demo":
+                gifs = spooky_eyes._demo_gifs(keys, work)
+                install_eyes(D, gifs, gifs)
+            else:
+                spooky_eyes.install_layout(D, keys, work)
+            D.build(os.path.join(self.temp_dir, how + ".dlc"))
+            with open(os.path.join(self.temp_dir, how + ".dlc"), "rb") as f:
+                built.append(f.read())
+        self.assertEqual(built[0], built[1])
+        # quarter dedup gives the "1" frame a repeated cel: (2, 3, 2, 4)
+        D = dlc(self.test_dlc_path)
+        spooky_eyes.install_layout(D, keys, os.path.join(self.temp_dir, "f"), dedup="quarter")
+        first = D.dlc_sections["SPR"].frames[D.dlc_sections["SPR"].frame_playlists[13]["frame_indices"][0]][0:8:2]
+        self.assertEqual(first, [2, 3, 2, 4])
+        # whole-frame dedup keeps each frame's cels consecutive, like demo.install_eyes()
+        self.assertEqual(spooky_eyes._add_cels([], [[[[0]], [[0]], [[0]], [[1]]]] * 2), [[0, 1, 2, 3]] * 2)
 
     def test_previews(self):
         """--preview writes a GIF of the timeline and a sheet of the keyframes"""

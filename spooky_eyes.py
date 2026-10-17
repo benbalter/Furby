@@ -299,7 +299,36 @@ def _set_frames(S, playlist, frames):
     p["frame_indices"], p["framecount"] = slots, len(slots)
 
 
-def install_animations(D, animations, zero=(248, 0, 248, 0)):
+def _add_cels(cels, frames, dedup="frame"):
+    """Append each frame's 4 quarter cels to cels; returns each frame's 4 cel numbers.
+
+    dedup "frame" stores an identical frame once, as 4 consecutive cels, the
+    way every frame demo.install_eyes() writes looks (and that shows on a
+    Furby). "quarter" also shares identical quarters, even within a frame,
+    e.g. TL and BL both black: frames like (2, 3, 2, 4), which the Furby
+    showed offset and duplicated. "none" stores every frame.
+    """
+    index, out = {}, []
+    for quarters in frames:
+        if dedup == "quarter":
+            numbers = []
+            for q in quarters:
+                key = bytes(v for row in q for v in row)
+                if key not in index:
+                    index[key] = len(cels)
+                    cels.append(q)
+                numbers.append(index[key])
+        else:
+            key = bytes(v for q in quarters for row in q for v in row)
+            if dedup == "none" or key not in index:
+                index[key] = len(cels)
+                cels.extend(quarters)
+            numbers = list(range(index[key], index[key] + 4))
+        out.append(numbers)
+    return out
+
+
+def install_animations(D, animations, zero=(248, 0, 248, 0), dedup="frame"):
     """Put animations on the DLC's eyes; returns the eye word for each (0x8401, 0x8402, ...).
 
     animations: a list of (keyframes, timeline) pairs, keyframes being 128x128
@@ -323,17 +352,8 @@ def install_animations(D, animations, zero=(248, 0, 248, 0)):
     PAL.palettes[4][:] = palette
     PAL.palettes[5][:] = palette
 
-    cels, index = [CEL.cels[0], [row[:] for row in CEL.cels[BLANK_CEL]]], {}
-
-    def cel(q):
-        key = bytes(v for row in q for v in row)
-        if key not in index:
-            index[key] = len(cels)
-            cels.append(q)
-        return index[key]
-
-    frame_cels = [[cel(q) for q in _quarters(p)] for p in pixels]
-    CEL.cels = cels
+    CEL.cels = CEL.cels[:1] + [[row[:] for row in CEL.cels[BLANK_CEL]]]
+    frame_cels = _add_cels(CEL.cels, [_quarters(p) for p in pixels], dedup)
 
     # The palette words demo.install_eyes() uses, from the stock frames.
     refs = sorted({w for f in S.frames for w in f[1:8:2]})
@@ -557,14 +577,23 @@ def build(
 RED, GREEN, CYAN = (255, 40, 20), (40, 255, 60), (40, 230, 255)
 BLACK = (0, 0, 0, 0xFF)
 EVERY = [(75, 0, 4, 4), (75, 0, 3, 4), (75, 0, 0, 3), (75, 0, 4, 2)]
+DEMO_ORDER = [0] * 10 + [1] * 9 + [0] * 10 + [1] * 9  # demo.install_eyes()'s 2-frame split
 PROBE = {
+    # Round 2: eyesc showed red 1-2 cleanly; eyesb's digits were "there ish, but offset and duplicated".
     "eyesa.dlc": (
         [("12", FRAMES, RED), ("34", FRAMES, GREEN), ("5678", 2 * FRAMES, CYAN)],
         {(75, 0, 4, 4): 0, (75, 0, 3, 4): 1, (75, 0, 0, 3): 2, (75, 0, 4, 2): 0},
-        "multi",
+        ("multi", {"dedup": "quarter"}),
     ),
-    "eyesb.dlc": ([("12", FRAMES, RED)], dict.fromkeys(EVERY, 0), "single"),
-    "eyesc.dlc": ([("12", FRAMES, RED)], dict.fromkeys(DEMO_ACTIONS, 0), "demo"),
+    "eyesb.dlc": ([("12", FRAMES, RED)], dict.fromkeys(EVERY, 0), ("single", {"dedup": "quarter"})),
+    "eyesc.dlc": ([("12", FRAMES, RED)], dict.fromkeys(DEMO_ACTIONS, 0), ("demo", {})),
+    # Round 3: eyesc plus one of eyesb's changes each.
+    "eyesd.dlc": ([("12", FRAMES, RED)], dict.fromkeys(DEMO_ACTIONS, 0), ("layout", {"palette": "kmeans"})),
+    "eyese.dlc": ([("12", FRAMES, RED)], dict.fromkeys(DEMO_ACTIONS, 0), ("layout", {"share": True})),
+    "eyesf.dlc": ([("12", FRAMES, RED)], dict.fromkeys(DEMO_ACTIONS, 0), ("layout", {"dedup": "quarter"})),
+    "eyesg.dlc": ([("12", FRAMES, RED)], dict.fromkeys(DEMO_ACTIONS, 0), ("layout", {"order": "halves"})),
+    # The new pipeline with whole-frame dedup only: eyesb minus the suspected cause.
+    "eyesh.dlc": ([("12", FRAMES, RED)], dict.fromkeys(EVERY, 0), ("single", {"dedup": "frame"})),
 }
 
 
@@ -592,25 +621,66 @@ def _demo_gifs(keys, work_dir):
     return paths
 
 
-def build_probe(dlc_in="./dlc/dlc2/tu003410.dlc", out_dir="./build/eyes_probe2"):
+def install_layout(D, keys, work_dir, palette="ramp", share=False, dedup="none", order="demo"):
+    """demo.install_eyes()'s layout for 2 keyframes, with one of install_animations()' changes switchable.
+
+    With the defaults it builds the same DLC as demo.install_eyes() on GIFs
+    from _demo_gifs(): cels 2-9 left eye, 10-17 right, each frame's 4 cels
+    consecutive, palettes 4 (left) and 5 (right), the 10/9/10/9 split.
+    palette "kmeans": install_animations()' palette (index 0 black).
+    share: both eyes use the left eye's cels. dedup "quarter": identical
+    quarters share a cel, even within a frame. order "halves": 19 frames of
+    each keyframe, as install_animations() plays 2 keyframes.
+    """
+    CEL, S, PAL = D.dlc_sections["CEL"], D.dlc_sections["SPR"], D.dlc_sections["PAL"]
+    if palette == "ramp":
+        gifs = _demo_gifs(keys, work_dir)
+        colours = PAL.extract_palette(gifs[0])
+        frames = [CEL.quarterize(g) for g in gifs]
+    else:
+        colours, pixels = _palette(keys, BLACK)
+        frames = [_quarters(p) for p in pixels]
+    PAL.palettes[4][:] = colours
+    PAL.palettes[5][:] = colours
+    CEL.cels[1] = [row[:] for row in CEL.cels[BLANK_CEL]]
+    CEL.cels = CEL.cels[:2]
+    left = _add_cels(CEL.cels, frames, dedup)
+    right = left if share else _add_cels(CEL.cels, frames, dedup)
+    refs = sorted({w for f in S.frames for w in f[1:8:2]})
+    shown = DEMO_ORDER if order == "demo" else [i * len(keys) // FRAMES for i in range(FRAMES)]
+    for p in range(8, 12):
+        _set_frames(S, p, [[(1, refs[0])] * 4] * FRAMES)
+    _set_frames(S, 12, [[(c, refs[4]) for c in right[i]] for i in shown])
+    _set_frames(S, 13, [[(c, refs[2]) for c in left[i]] for i in shown])
+    for code in DEMO_ACTIONS:
+        D.trigger_custom_graphics(code)
+    return [FIRST_ANIMATION]
+
+
+def build_probe(dlc_in="./dlc/dlc2/tu003410.dlc", out_dir="./build/eyes_probe2", only=None):
     """DLCs of numbered test animations that answer what's unverified about eyes; returns their paths."""
     from demo import install_eyes
 
     os.makedirs(out_dir, exist_ok=True)
     paths = []
-    for name, (anims, actions, how) in PROBE.items():
+    for name, (anims, actions, (how, opts)) in PROBE.items():
+        if only and name not in only:
+            continue
         animations = []
         for digits, frames, colour in anims:
             keys = [_digit(int(d), colour).resize((SIZE, SIZE), Image.LANCZOS) for d in digits]
             animations.append((keys, [i * len(digits) // frames for i in range(frames)]))
         D = dlc(dlc_in)
         D.dlc_sections["AMF"].minify_audio(128)
+        work_dir = os.path.join(out_dir, name[:-4])
         if how == "demo":
-            gifs = _demo_gifs(animations[0][0], os.path.join(out_dir, name[:-4]))
+            gifs = _demo_gifs(animations[0][0], work_dir)
             install_eyes(D, gifs, gifs)  # shows frame 0 for frames 0-9 and 19-28, frame 1 for the rest
             words = [FIRST_ANIMATION]
+        elif how == "layout":
+            words = install_layout(D, animations[0][0], work_dir, **opts)
         else:
-            words = install_animations(D, animations, BLACK)
+            words = install_animations(D, animations, BLACK, **opts)
             for code, n in actions.items():
                 D.trigger_custom_graphics(code, words[n])
         path = os.path.join(out_dir, name)
@@ -619,7 +689,7 @@ def build_probe(dlc_in="./dlc/dlc2/tu003410.dlc", out_dir="./build/eyes_probe2")
         built = dlc(path)
         for w in words:
             save_preview(render(built, w), os.path.join(out_dir, "%s_%04x.gif" % (name[:-4], w)))
-        print("Built %s (%d KB, %s):" % (path, os.path.getsize(path) // 1000, how))
+        print("Built %s (%d KB, %s %s):" % (path, os.path.getsize(path) // 1000, how, opts))
         for code, n in actions.items():
             digits, frames, _ = anims[n]
             print("  %s  0x%04x, %d frames: digits %s" % ("-".join(map(str, code)), words[n], frames, digits))

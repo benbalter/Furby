@@ -92,6 +92,14 @@ uv run porch.py --rehearse
 
 This plays every scene through your computer's speakers, with the show's timing, no Furbies needed. `--scene 2` plays just one, and `--clip pink.boo` just one line. Re-record or edit anything you don't like, then build again (step 3).
 
+#### Preview the show on your computer
+
+```bash
+uv run preview.py --open
+```
+
+This builds `build/preview/index.html` and opens it: both Furbies side by side, playing the built show with each clip's sound as the Furby stores it, the eye animations, the antenna lights and the show's real timing (from `emulate.py`), including any wait for a Furby still busy with its last sequence. The eyes are a model of how the firmware draws them, so the real Furby may differ. If your browser won't play it from disk, run `python3 -m http.server -d build/preview` and open <http://localhost:8000>. The page holds audio decoded from DLCs built on Hasbro's, so don't commit, host or share `build/preview/`.
+
 ### 5. Flash each Furby
 
 The two Furbies are identical, so the show tells them apart only by which DLC each one has. Flash `pink.dlc` to one and `blue.dlc` to the other, with only the one you're flashing awake, so the DLC can't go to the wrong Furby.

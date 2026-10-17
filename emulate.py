@@ -401,7 +401,12 @@ def simulate(plan, dlc_paths, scenes=None, wait=None, durations=None, engine=fur
     """
     durations = durations or load_durations()
     wait = plan["every"][0] if wait is None else wait
-    lines = []
+    lines, stamped = [], []  # the show's log, and the same with each line's virtual time
+
+    def log(line):
+        lines.append(line)
+        stamped.append((asyncio.get_running_loop().time(), line))
+
     VirtualFurby = furby_class(engine)
     furbies = [
         VirtualFurby("virtual-%s" % n, p, "%s.DLC" % n.upper().rjust(8, "_"), durations) for n, p in dlc_paths.items()
@@ -418,14 +423,19 @@ def simulate(plan, dlc_paths, scenes=None, wait=None, durations=None, engine=fur
     report = []
 
     async def main():
-        show = engine.Show(plan, find, log=lines.append)
+        show = engine.Show(plan, find, log=log)
         await show.connect_missing()
         for i in scenes if scenes is not None else range(len(plan["scenes"])):
             scene = plan["scenes"][i]
             start, said = asyncio.get_running_loop().time(), len(lines)
             await show.play_scene(scene)
             end = asyncio.get_running_loop().time()
-            events = [(f, e, d) for f in furbies for (t, e, d) in f.model.log if start <= t <= end]
+            # The model logs times to the millisecond, so compare at that precision: a scene's first
+            # trigger happens the instant it starts, and logs as a hair before an unrounded start.
+            logged = [
+                (t, f, e, d) for f in furbies for (t, e, d) in f.model.log if round(start, 3) <= t <= round(end, 3)
+            ]
+            events = [(f, e, d) for _, f, e, d in logged]
             # A line is silent if its action ran without audio and wasn't then played again with it.
             silent = []
             for k, (f, e, d) in enumerate(events):
@@ -441,6 +451,12 @@ def simulate(plan, dlc_paths, scenes=None, wait=None, durations=None, engine=fur
                     "silent": silent,
                     "skipped": [line for line in lines[said:] if "skipped" in line],
                     "played": sum(e == "played" for _, e, _ in events),
+                    # Everything that happened, seconds into the scene, for preview.py's timeline
+                    "events": sorted(
+                        [(max(0, round(t - start, 3)), str(f), e, d) for t, f, e, d in logged]
+                        + [(round(t - start, 3), None, "log", line) for t, line in stamped if start <= t <= end],
+                        key=lambda event: event[0],
+                    ),
                 }
             )
             await asyncio.sleep(wait)

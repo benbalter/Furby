@@ -26,6 +26,7 @@ Halloween show pipeline:
 uv run halloween.py [--skip-missing]   # halloween/show.toml → build/halloween/{pink,blue}.dlc + show.json
 uv run porch.py --list | --clip pink.cackle | --scene 0   # run/test the show from a computer
 uv run porch.py --rehearse [--scene N]  # play scenes on this computer's speakers; no Furbies needed
+uv run preview.py [--open]               # build/preview/index.html: both Furbies in a browser, sound/eyes/lights/timing (never publish: Hasbro-derived audio)
 uv run flash.py build/halloween/pink.dlc  # flash a DLC from this computer (one Furby awake, no reset needed)
 uv run deploy.py [--only pink] [--no-build] [--yes] [--esp32]  # guided: build, then wake/confirm/flash each Furby in turn
 uv run porch.py --check                 # play every clip once per Furby; played/skipped/no reply, sequence timings, checksums

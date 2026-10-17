@@ -14,12 +14,12 @@ firmware/main.py. It records each DLC's checksum, so the show can warn when a
 Furby needs reflashing.
 
 USAGE:
-    python halloween.py                 # build/halloween/pink.dlc, blue.dlc, show.json
-    python halloween.py --skip-missing  # leave out clips you haven't made yet
+    uv run halloween.py                 # build/halloween/pink.dlc, blue.dlc, show.json
+    uv run halloween.py --skip-missing  # leave out clips you haven't made yet
 
-Flash each DLC to its Furby with FurBLE's "Upload Custom": pink.dlc to the
-pink Furby and blue.dlc to the blue one. The show tells them apart by the name
-of the DLC each has active, so keep the file names.
+Flash each DLC to its Furby with flash.py, one Furby awake at a time:
+pink.dlc to the pink Furby and blue.dlc to the blue one. The show tells them
+apart by the name of the DLC each has active, so keep the file names.
 """
 
 import argparse

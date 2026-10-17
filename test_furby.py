@@ -1234,6 +1234,293 @@ class TestFirmware(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
 
 
+class TestEyeCheck(unittest.TestCase):
+    """eyecheck composes a DLC's eyes the way the Furby does and fails what won't show as intended"""
+
+    def setUp(self):
+        self.stock_path = "./dlc/dlc2/tu003410.dlc"
+        if not os.path.exists(self.stock_path):
+            self.skipTest("Test DLC file not found")
+        self.temp_dir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
+
+    def test_stock_composes_its_own_eye(self):
+        """Hasbro's animation 1 composes the eye layer under the chilli and flames, as the firmware's files do"""
+        import eyecheck
+        D = dlc(self.stock_path)
+        self.assertEqual(eyecheck.envelope(D), ([], []))
+        for rule in eyecheck.RULES:
+            frames = eyecheck.compose(D, 0x8401, "right", rule)
+            self.assertEqual(len(frames), 38)
+            self.assertEqual(frames[0].getpixel((64, 64)), eyecheck.compose(D, 0x8401, "right", "layer")[0].getpixel((64, 64)))
+
+    def test_one_animation_renders_as_drawn(self):
+        """spooky_eyes' one-animation DLC composes to its keyframes, frame by frame, under either palette rule"""
+        from PIL import Image
+
+        import eyecheck
+        import spooky_eyes
+        D = dlc(spooky_eyes.build("storm", out_dir=self.temp_dir))
+        self.assertEqual(eyecheck.check(D), ([], []))
+        palette, pixels = spooky_eyes._palette(spooky_eyes.keyframes("storm"))
+        keys = []
+        for p in pixels:
+            im = Image.new("RGB", (128, 128))
+            im.putdata([palette[i][:3] for i in p])
+            keys.append(im)
+        want = [keys[k] for k in spooky_eyes.timeline("storm")]
+        expected = {(0x8401, eye): want for eye in ("right", "left")}
+        self.assertEqual(eyecheck.check(D, expected), ([], []))
+
+    def test_several_animations_fail(self):
+        """More than one animation (probe.dlc had 32 playlists) is what left the old DLC's cels on screen"""
+        import eyecheck
+        import spooky_eyes
+        slots = spooky_eyes.scene_slots(dlc(self.stock_path))
+        clip = "./audio/new_audio/darkside_wav.a18"
+        path = spooky_eyes.build("demon", clips={slots[0]: clip}, eyes={slots[0]: "ghost"}, out_dir=self.temp_dir)
+        errors, _ = eyecheck.check(dlc(path))
+        self.assertTrue(any("24 SPR playlists" in e for e in errors), errors)
+        self.assertNotEqual(eyecheck.main([path]), 0)
+
+    def test_long_animation_fails(self):
+        """A 76-frame animation's SPR is bigger than any that has shown on a Furby"""
+        import eyecheck
+        import spooky_eyes
+        errors, _ = eyecheck.check(dlc(spooky_eyes.build("storm", out_dir=self.temp_dir, frames=76)))
+        self.assertTrue(any("SPR is" in e for e in errors), errors)
+
+    def test_flipped_quarter_fails(self):
+        """A quarter with the H-flip bit set doesn't render as drawn, whichever palette rule holds"""
+        import eyecheck
+        import spooky_eyes
+        D = dlc(spooky_eyes.build("demon", out_dir=self.temp_dir))
+        S = D.dlc_sections["SPR"]
+        f = S.frame_playlists[12]["frame_indices"][0]
+        S.frames[f] = S.frames[f][:1] + [S.frames[f][1] | eyecheck.H_FLIP] + S.frames[f][2:]
+        errors, _ = eyecheck.check(D)
+        self.assertTrue(any("right eye doesn't render" in e for e in errors), errors)
+
+    def test_palette_rule_and_bad_cels(self):
+        """Different palettes in slots 4 and 5 depend on the unsettled rule; a missing cel or animation is an error"""
+        import eyecheck
+        import spooky_eyes
+        D = dlc(spooky_eyes.build("demon", out_dir=self.temp_dir))
+        P = D.dlc_sections["PAL"].palettes
+        P[4] = [P[4][0]] + [(c[0] ^ 0x80, c[1], c[2], c[3]) for c in P[4][1:]]
+        errors, warnings = eyecheck.check(D)
+        self.assertEqual(errors, [])
+        self.assertTrue(any("left eye" in w and "'slot'" in w for w in warnings), warnings)
+        S = D.dlc_sections["SPR"]
+        f = S.frame_playlists[12]["frame_indices"][0]
+        S.frames[f] = [999] + S.frames[f][1:]
+        D.trigger_custom_graphics(spooky_eyes.DEMO_ACTIONS[0], 0x8402)
+        errors, _ = eyecheck.envelope(D)
+        self.assertTrue(any("uses cel 999" in e for e in errors), errors)
+        self.assertTrue(any("0x8402" in e for e in errors), errors)
+
+    def test_demo_layout_passes(self):
+        """Context's demo layout, which has shown on a Furby, passes; its see-through pixels depend on the rule"""
+        import demo
+        import eyecheck
+        path = os.path.join(self.temp_dir, "demo.dlc")
+        demo.make_hacked_inverting(dlc_out=path)
+        errors, _ = eyecheck.check(dlc(path))
+        self.assertEqual(errors, [])
+
+    def test_stale_cels_and_gifs(self):
+        """--gif writes both eyes under each rule; --stale-cel draws another DLC's cels in the new frames"""
+        import eyecheck
+        import spooky_eyes
+        path = spooky_eyes.build("demon", out_dir=self.temp_dir)
+        other = spooky_eyes.build("pumpkin", out_dir=self.temp_dir)
+        out = os.path.join(self.temp_dir, "gifs")
+        self.assertEqual(eyecheck.main([path, "--gif", out, "--stale-cel", other]), 0)
+        self.assertEqual(sorted(os.listdir(out)), ["spooky_demon_8401_layer_stale.gif", "spooky_demon_8401_slot_stale.gif"])
+        D, stale = dlc(path), dlc(other).dlc_sections["CEL"].cels
+        self.assertNotEqual(eyecheck.compose(D, 0x8401, cels=stale)[0].tobytes(), eyecheck.compose(D, 0x8401)[0].tobytes())
+
+
+class TestEmulator(unittest.TestCase):
+    """emulate.py's virtual Furby answers like the hardware, on a virtual clock"""
+
+    def setUp(self):
+        if not os.path.exists("./dlc/dlc2/tu003410.dlc"):
+            self.skipTest("Test DLC file not found")
+        self.temp_dir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
+
+    def build(self, name, n=2, **kw):
+        """A small DLC with n clips on quick slots; returns (path, actions)."""
+        import halloween
+        import spooky_eyes
+
+        slots = halloween.quick_slots(dlc("./dlc/dlc2/tu003410.dlc"))[:n]
+        clip = "./audio/new_audio/darkside_wav.a18"
+        path = spooky_eyes.build("demon", clips=dict.fromkeys(slots, clip), out_dir=self.temp_dir, name=name, **kw)
+        return path, slots
+
+    def test_virtual_time(self):
+        """A long wait takes no real time"""
+        import asyncio
+        import time
+
+        import emulate
+
+        start = time.monotonic()
+        _, seconds = emulate.run(asyncio.sleep(600))
+        self.assertAlmostEqual(seconds, 600, places=3)
+        self.assertLess(time.monotonic() - start, 1)
+
+    def test_trigger_replies(self):
+        """20:0c when idle, 20:07 while the last sequence runs, 20:0e when it ends; DLC info names it"""
+        import zlib
+
+        import emulate
+        import furbyshow
+
+        path, (action, _) = self.build("pink")
+        D = dlc(path)
+        busy, audio = emulate.sequence_seconds(D, action)
+        self.assertGreater(audio, 1)
+        self.assertGreaterEqual(busy, audio)
+        furby = emulate.furby_class()("virtual", path, "____PINK.DLC")
+
+        async def go():
+            name = await furby.identify()
+            first = await furby.command(furbyshow.trigger_command(action), expect=(b"\x20\x0c", b"\x20\x07"))
+            again = await furby.command(furbyshow.trigger_command(action), expect=(b"\x20\x0c", b"\x20\x07"))
+            ended = await furby.command(None, expect=furbyshow.SEQUENCE_ENDED, timeout=busy + 1)
+            played = await furby.play(action)
+            await furby.command(furbyshow.KEEPALIVE)
+            await furby.set_antenna((255, 0, 0))
+            return name, first, again, ended, played
+
+        (name, first, again, ended, played), seconds = emulate.run(go())
+        self.assertEqual((name, first, again, ended, played), ("pink", b"\x20\x0c", b"\x20\x07", b"\x20\x0e", True))
+        with open(path, "rb") as f:
+            self.assertEqual(furby.checksum, zlib.adler32(f.read()))
+        events = [e for _, e, _ in furby.model.log]
+        self.assertEqual(events.count("played"), 2)
+        self.assertEqual(events.count("silent"), 1)
+        self.assertIn("keepalive", events)
+        self.assertEqual(furby.model.antenna, (255, 0, 0))
+        self.assertLess(seconds, busy + 2)
+
+    def plan(self, pink, blue):
+        """Two Furbies; scene 0 has pink say both its lines back to back, the way that went silent."""
+        path_p, (a, b) = pink
+        path_b, (c, _) = blue
+        clip = lambda action: {"action": list(action), "seconds": 0.5}  # noqa: E731
+        return {
+            "gap": 0.2,
+            "every": [30, 60],
+            "furbies": {
+                "pink": {"clips": {"a": clip(a), "b": clip(b)}},
+                "blue": {"clips": {"c": clip(c)}},
+            },
+            "scenes": [["pink.a", "pink.b"], ["pink.a + blue.c"]],
+            "greetings": [],
+        }
+
+    def test_show_catches_silent_clips(self):
+        """The old fire-and-forget play() leaves a line silent; today's waits for the Furby instead"""
+        import types
+
+        import emulate
+        import furbyshow
+
+        pink, blue = self.build("pink"), self.build("blue")
+        plan = self.plan(pink, blue)
+        dlcs = {"pink": pink[0], "blue": blue[0]}
+        report = emulate.simulate(plan, dlcs)
+        self.assertEqual([r["silent"] for r in report], [[], []])
+        self.assertEqual([r["skipped"] for r in report], [[], []])
+        self.assertGreater(report[0]["seconds"], report[0]["planned"] + 0.5)  # it waited for pink
+
+        # furbyshow before 925f386: play() sent the trigger and moved on
+        old = types.ModuleType("furbyshow_old")
+        old.__dict__.update(furbyshow.__dict__)
+
+        class Furby(furbyshow.Furby):
+            async def play(self, action, patience_ms=0):
+                await self.command(furbyshow.trigger_command(action))
+                return True
+
+        old.Furby = Furby
+        report = emulate.simulate(plan, dlcs, engine=old)
+        self.assertEqual(report[0]["silent"], ["pink 75-%d-%d-%d" % tuple(pink[1][1][1:])])
+        self.assertEqual(report[1]["silent"], [])
+        with __import__("unittest").mock.patch("builtins.print"):
+            self.assertTrue(emulate.print_report(report))
+
+    def test_emulate_cli(self):
+        """emulate.py reads show.json and the DLCs beside it"""
+        import json
+        from unittest import mock
+
+        import emulate
+
+        pink, blue = self.build("pink"), self.build("blue")
+        path = os.path.join(self.temp_dir, "show.json")
+        with open(path, "w") as f:
+            json.dump(self.plan(pink, blue), f)
+        with mock.patch("builtins.print"):
+            self.assertEqual(emulate.main([path, "--scene", "1"]), 0)
+            self.assertEqual(emulate.main([path, "--worst"]), 0)
+        with self.assertRaises(SystemExit):
+            emulate.main([os.path.join(self.temp_dir, "nope.json")])
+        elsewhere = os.path.join(self.temp_dir, "pink", "show.json")  # no DLCs beside it
+        shutil.copy(path, elsewhere)
+        with self.assertRaises(SystemExit):
+            emulate.main([elsewhere])
+
+    def test_flash(self):
+        """flash.py's whole upload against the virtual Furby; eyes outside the envelope keep the old cels"""
+        import emulate
+        import flash
+        import spooky_eyes
+
+        good, _ = self.build("pink", n=1)
+        multi = spooky_eyes.build(
+            "demon",
+            clips={spooky_eyes.DEMO_ACTIONS[0]: "./audio/new_audio/darkside_wav.a18"},
+            eyes={spooky_eyes.DEMO_ACTIONS[0]: "ghost"},
+            out_dir=self.temp_dir,
+            name="probe",
+        )
+        client = emulate.VirtualClient()
+
+        async def go(path):
+            with open(path, "rb") as f:
+                data = f.read()
+            await flash.Flasher(client, log=lambda _: None, packet_delay=0).flash(data, flash.furby_filename(path))
+
+        emulate.run(go(good))
+        model = client.model
+        with open(good, "rb") as f:
+            self.assertEqual(model.slots[model.active]["data"], f.read())
+        self.assertEqual(model.antenna, (0, 255, 0))
+        cels = model.cels
+        emulate.run(go(multi))
+        self.assertEqual(len(model.slots), 1)  # flash.py deleted the old one first
+        self.assertIs(model.cels, cels)
+        self.assertTrue(any(e == "eyes keep the previous DLC's cels" for _, e, _ in model.log))
+        stale = model.eyes(0x8401)[0].tobytes()
+        self.assertNotEqual(stale, __import__("eyecheck").compose(model.dlc(), 0x8401)[0].tobytes())
+
+        big = os.path.join(self.temp_dir, "big.dlc")
+        with open(big, "wb") as f:
+            f.write(bytes(emulate.MAX_UPLOAD + 100))
+        with self.assertRaises(RuntimeError):
+            emulate.run(go(big))
+        self.assertEqual(model.antenna, (255, 0, 0))
+
+
 class TestAudioUtils(unittest.TestCase):
     """Test the DLL-free audio tools"""
 

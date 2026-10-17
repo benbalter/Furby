@@ -37,6 +37,8 @@ uv run doctor.py [--furbies]           # check tools, Bluetooth, clips, built DL
 uv run probe.py build slots            # each scene slot says its number → build/probe/slots.dlc + slots.json
 uv run probe.py build motions e000-e017  # slot N says "move N" and runs only motor word N (24 slots per DLC)
 uv run probe.py run slots [--reverse] [--times N] [--only 2,5]  # time each slot 20:0c → 20:0e; saves build/probe/<name>-<time>.json
+uv run eyecheck.py build/halloween/*.dlc [--gif DIR] [--stale-cel prev.dlc]  # compose eyes as the Furby does; fail what won't show
+uv run emulate.py [--worst] [--scene N] [--durations measured.json]  # run show.json on virtual Furbies: silent/skipped lines, pacing
 ```
 
 ## Architecture
@@ -44,6 +46,8 @@ uv run probe.py run slots [--reverse] [--times N] [--only 2,5]  # time each slot
 **DLC model ([furby.py](furby.py)).** `dlc` parses a DLC into sections (`HEADER`, `PAL`, `SPR`, `CEL`, `XLS`, `AMF`, `APL`, `LPS`, `SEQ`, `MTR`), lets you edit them, and `build()`s them back. To find what an action plays, follow the chain: action code `(input, index, subindex, specific)` → `XLS.action_tree[...]["seq"]` → `SEQ.sequences[seq]` (entries `0x8xxx`/`0xaxxx` are eye animations; `[1]` minus `playlist_offset` is the APL playlist) → `APL.playlists` → `AMF.tracks` (A1800 audio). `spooky_eyes._actions()` and `_tracks()` wrap that lookup. Palette colours are ARGB1555 (verified).
 
 **Eyes.** An eye frame is 128×128 pixels in 64 colours, stored as four 64×64 cels (about 3 KB each). SPR holds playlists of frames, 8 to an animation (right and left eye for each of 4 layers), so playlists 8–15 are the DLC's animation 1, eye word `0x8401`. [demo.py](demo.py) `install_eyes()` blanks its lower layers and puts custom frames on the top one (playlists 12/13); that layout has run on a Furby. `spooky_eyes.install_animations()` keeps it for animation 1 and appends a copy per extra theme (`0x8402`, …). Two things there are **inferred, not seen on a Furby**: that `0x84nn` picks DLC animation nn (from [furby-connect-eyes-extract](https://github.com/lib-fluff-so/furby-connect-eyes-extract)'s rendering of the firmware's files, which hold 156 animations; stock sequences only use `0x8003`–`0x8096`), and which field picks a frame's palette (the playlist's layer field ÷ 64, or the frame's palette word). Every frame therefore shares one palette, written to slots 4 and 5. `--probe` builds a DLC that settles the first, plus frame timing and what shows during delay words. In show.toml, `one_eye_animation = true` falls back to the proven layout.
+
+**Eye check ([eyecheck.py](eyecheck.py)).** A frame's per-quarter "palette word" (`0x10f2`, `0x14f2`, `0x18f2`) is a SunPlus PPU sprite attribute: bit 2 is H-flip, the low byte otherwise means 64×64 at 6 bpp, and bits 8–11 pick a hardware palette slot. `compose()` draws all four layers with index 0 see-through under both palette rules; `check()` fails anything that doesn't match `intended()` under either, or leaves the proven envelope (`PROVEN_*`). What probe.dlc (32 playlists) showed matches its frames and palette over an **earlier DLC's cels** (`--stale-cel`), so its CEL probably never loaded; that's inferred from a description of the photos, and whether playlist count, SPR size or file size triggers it is open. Until a probe says otherwise, keep DLCs to one animation of 38 frames.
 
 **Hardware facts that shape the design** (from testing on a real Furby):
 - A DLC only changes what plays when an action is **triggered over Bluetooth**. The Furby's own reactions (noise, petting, input 20 and so on) come from built-in memory, whatever DLC is active. So the show needs a controller that sends the triggers.
@@ -66,6 +70,8 @@ uv run probe.py run slots [--reverse] [--times N] [--only 2,5]  # time each slot
 - no `typing`, `dataclasses` or `time.monotonic` (use the `ticks_ms`/`ticks_diff` helpers);
 - catch `asyncio.TimeoutError` (ruff's UP041 is disabled for these files);
 - on the board, the wake event is an `asyncio.ThreadSafeFlag` so that a pin IRQ can set it.
+
+[emulate.py](emulate.py) is a virtual Furby (`FurbyModel`) behind both a `furbyshow.Furby` subclass and a bleak-client stand-in for `flash.Flasher`, on a `VirtualTimeLoop` (a selector that jumps the clock to the next timer; `virtual_time()` points `ticks_ms` at it). Sequence length is max(audio, delay words at an assumed 10 ms, movement range); `TestEmulator` checks it flags the pre-925f386 fire-and-forget `play()`.
 
 [test_furby.py](test_furby.py) `TestFirmware` runs `main.py` on CPython against fake `aioble`/`bluetooth`/`machine` modules.
 

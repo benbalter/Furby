@@ -170,8 +170,15 @@ class Flasher:
         await self.gp(furbyshow.antenna_command((0, 255, 0)))
 
 
+async def scan(timeout=8):
+    """Furbies advertising in range, without connecting to them."""
+    from bleak import BleakScanner
+
+    return [d for d in await BleakScanner.discover(timeout=timeout) if (d.name or "").startswith("Furby")]
+
+
 async def main(args):
-    from bleak import BleakClient, BleakScanner
+    from bleak import BleakClient
 
     if args.list or not args.dlc:
         import porch
@@ -180,7 +187,7 @@ async def main(args):
             print("%s  active DLC: %s" % (furby.address, furby.name))
             await furby.disconnect()
         return
-    found = [d for d in await BleakScanner.discover(timeout=8) if (d.name or "").startswith("Furby")]
+    found = await scan()
     if args.address:
         found = [d for d in found if d.address.lower() == args.address.lower()]
     if len(found) != 1:

@@ -32,6 +32,7 @@ uv run spooky_eyes.py --theme pumpkin   # standalone eyes DLC
 uv run spooky_eyes.py --preview         # build/eyes/<theme>.gif and .png for every eye theme
 uv run spooky_eyes.py --probe           # numbered test animations that answer the open eye questions
 uv run eyecheck.py build/halloween/*.dlc [--gif DIR] [--stale-cel prev.dlc]  # compose eyes as the Furby does; fail what won't show
+uv run emulate.py [--worst] [--scene N] [--durations measured.json]  # run show.json on virtual Furbies: silent/skipped lines, pacing
 ```
 
 ## Architecture
@@ -61,6 +62,8 @@ uv run eyecheck.py build/halloween/*.dlc [--gif DIR] [--stale-cel prev.dlc]  # c
 - no `typing`, `dataclasses` or `time.monotonic` (use the `ticks_ms`/`ticks_diff` helpers);
 - catch `asyncio.TimeoutError` (ruff's UP041 is disabled for these files);
 - on the board, the wake event is an `asyncio.ThreadSafeFlag` so that a pin IRQ can set it.
+
+[emulate.py](emulate.py) is a virtual Furby (`FurbyModel`) behind both a `furbyshow.Furby` subclass and a bleak-client stand-in for `flash.Flasher`, on a `VirtualTimeLoop` (a selector that jumps the clock to the next timer; `virtual_time()` points `ticks_ms` at it). Sequence length is max(audio, delay words at an assumed 10 ms, movement range); `TestEmulator` checks it flags the pre-925f386 fire-and-forget `play()`.
 
 [test_furby.py](test_furby.py) `TestFirmware` runs `main.py` on CPython against fake `aioble`/`bluetooth`/`machine` modules.
 

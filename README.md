@@ -299,7 +299,9 @@ The build copies Context's `hacked.dlc`, which [FurBLE](https://github.com/pdjst
 
 A DLC only changes what plays when a phone or computer triggers an action over Bluetooth. The Furby's own reactions to noises, petting and so on come from its built-in memory, so they sound the same with any DLC active. To try the eyes, flash the DLC (below), then trigger `75 0 4 4` from FurBLE's custom action box.
 
-### Checking eyes before flashing
+### Checking before flashing
+
+`python emulate.py` runs every scene in `build/halloween/show.json` against virtual Furbies that answer like real ones (`20:0c`, `20:07` while still busy, `20:0e`, DLC info, the upload `flash.py` does), on a virtual clock, and reports lines that would go silent or be skipped and how long each scene really takes. `--worst` assumes each body movement takes its longest measured time; `--durations file.json` takes measured ones.
 
 `python eyecheck.py build/halloween/*.dlc` composes each custom animation the way the Furby does (all four layers, flip bits, see-through pixels, both candidate palette rules) and fails a DLC that won't show as drawn, or that leaves what's been seen working on a Furby: 16 SPR playlists and a stock-sized SPR. `--gif DIR` writes what it composed, and `--stale-cel previous.dlc` shows what the Furby draws if the new cels don't load, which is how `probe.dlc` (32 playlists) came out on hardware.
 

@@ -379,8 +379,13 @@ class dlc(object):
 
 		t1_terminator = 0x40
 		t3_terminator = 0xffff
-		t1_length = 0xe0
+		t1_entry_length = 0x0e
+		t1_length = 0xe0	# 16 entries in Hasbro's DLCs; recounted on load and build
 
+		#Each animation is a group of 8 playlists (right and left eye for each of
+		#4 layers), so playlists 8-15 are the DLC's animation 1, eye word 0x8401.
+		#(Inferred from lib-fluff-so/furby-connect-eyes-extract, which renders the
+		#firmware's SPR files this way; only animation 1 is tested on a Furby.)
 		channels_per_anim = 8
 
 		def __initialise__(self):
@@ -395,8 +400,12 @@ class dlc(object):
 				
 				t2offsets = set()
 				
-				for w in range(16):
+				#Type-1 entries run up to the first frame (type-3 entry), so keep
+				#reading until we reach the lowest frame offset seen so far.
+				first_frame = len(self.rawbytes) // 2
+				while ((len(self.frame_playlists) * self.t1_entry_length) < (first_frame * 2)):
 
+					self.__seek__(len(self.frame_playlists) * self.t1_entry_length)
 					raw_vals = [self.__unpack__(2), self.__unpack__(4), self.__unpack__(4), self.__unpack__(4)]
 					
 					assert(raw_vals[-1] == self.t1_terminator)
@@ -410,15 +419,18 @@ class dlc(object):
 					
 					t2offsets.add(raw_vals[1])
 
-				#Get type-2 entries (pointers to whole frames)
-				for w in range(16):
-					self.__seek__(self.frame_playlists[w]["t2_offset_raw"]*2)
-					self.frame_playlists[w]["t3_offsets_raw"] = [self.__unpack__(4) for _ in range(self.frame_playlists[w]["framecount"])]
+					#Get type-2 entries (pointers to whole frames)
+					self.__seek__(raw_vals[1]*2)
+					self.frame_playlists[-1]["t3_offsets_raw"] = [self.__unpack__(4) for _ in range(raw_vals[0])]
+					first_frame = min([first_frame] + self.frame_playlists[-1]["t3_offsets_raw"])
+
+				self.t1_length = len(self.frame_playlists) * self.t1_entry_length
+				num_playlists = len(self.frame_playlists)
 
 
 				#Get type-3 entries (whole frames, as a sequence of quarter-frames)
 				interim_frames = {}
-				for w in range(16):
+				for w in range(num_playlists):
 					for i in range(self.frame_playlists[w]["framecount"]):
 						
 						frame_offset = self.frame_playlists[w]["t3_offsets_raw"][i] 
@@ -438,14 +450,14 @@ class dlc(object):
 				self.frames = [interim_frames[i] for i in all_frame_offsets]
 
 				#Fix up t3 indices.
-				for w in range(16):
+				for w in range(num_playlists):
 					self.frame_playlists[w]["frame_indices"] = [all_frame_offsets.index(i) for i in self.frame_playlists[w]["t3_offsets_raw"]]
 
 				#Fix up t2 indices.
 				t2offsets = sorted(list(t2offsets))
-				for w in range(16):
+				for w in range(num_playlists):
 					self.frame_playlists[w]["framelist_index"] = t2offsets.index(self.frame_playlists[w]["t2_offset_raw"])
-				assert(set([w["framelist_index"] for w in self.frame_playlists]) == set(range(16)))
+				assert(set([w["framelist_index"] for w in self.frame_playlists]) == set(range(num_playlists)))
 
 		def __compile__(self):
 
@@ -459,9 +471,10 @@ class dlc(object):
 					t3_raw += struct.pack("<H", i)
 
 			#Fix up t3 offsets.
+			self.t1_length = len(self.frame_playlists) * self.t1_entry_length
 			word_offset, checknum = divmod(self.t1_length,2)
 			assert(checknum == 0)
-			for w in range(16):
+			for w in range(len(self.frame_playlists)):
 				self.frame_playlists[w]["t3_offsets_raw"] = [ ((i * 9) + word_offset) for i in self.frame_playlists[w]["frame_indices"] ]
 
 			#Fix up t2 offsets (and build t2.)
@@ -477,7 +490,7 @@ class dlc(object):
 					t2_raw += struct.pack("<I", i)
 
 			#Build t1.
-			for w in range(16):
+			for w in range(len(self.frame_playlists)):
 				self.__pack__(self.frame_playlists[w]["framecount"],2)
 				self.__pack__(self.frame_playlists[w]["t2_offset_raw"],4)
 				self.__pack__(self.frame_playlists[w]["layer"],4)
@@ -1524,7 +1537,9 @@ class dlc(object):
 			
 			self.dlc_sections["AMF"].replace_track(a, t)
 
-	def trigger_custom_graphics(self, action_code):
+	#animation: 0x8401 is the DLC's animation 1 (SPR playlists 8-15); 0x8402
+	#would be animation 2 (playlists 16-23), and so on.
+	def trigger_custom_graphics(self, action_code, animation=0x8401):
 
 		assert((type(action_code) == tuple) and (len(action_code) == 4))
 
@@ -1537,7 +1552,7 @@ class dlc(object):
 			#0x8xxx refer to specific eye animations;
 			#0xaxxx allow for a random eye animation (possibly selected from a pool)
 			if ((top_nibble == 0x08) or (top_nibble == 0x0a)):
-				self.dlc_sections["SEQ"].sequences[sequence_no][i] = 0x8401
+				self.dlc_sections["SEQ"].sequences[sequence_no][i] = animation
 			
 			#Shrink inter-clip spacing.
 			#0x1032 is the smallest separator observed "in the wild."

@@ -4,8 +4,9 @@
 """
 Build the two-Furby Halloween show from halloween/show.toml.
 
-Each Furby gets its own DLC: its eye theme, plus one clip on each of a set of
-75 actions (see spooky_eyes.scene_slots). A DLC only plays when something
+Each Furby gets its own DLC: one clip on each of a set of 75 actions (see
+spooky_eyes.scene_slots), each with an eye animation from the Furby's eyes
+list (see clip_eyes). A DLC only plays when something
 triggers those actions over Bluetooth, so something has to do that on the
 night. This also writes build/halloween/show.json, which the show engine
 (furbyshow.py) plays, from a computer with porch.py or from an ESP32 with
@@ -31,7 +32,7 @@ import zlib
 
 from furby import dlc
 from furbyshow import step_parts
-from spooky_eyes import build, scene_slots
+from spooky_eyes import FRAMES, MIXES, build, scene_slots
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "audioutils"))
 from encode_a18 import encode  # noqa: E402
@@ -61,6 +62,25 @@ def clip_spec(value):
     spec = {"path": value} if isinstance(value, str) else dict(value)
     spec.setdefault("optional", False)
     return spec
+
+
+def clip_eyes(furby, clips, one=False):
+    """The Furby's main eye theme, and {clip: theme}.
+
+    Clips take turns through the Furby's eyes list in clip-name order, so
+    consecutive lines tend to look different; a clip table's eyes picks its
+    own. Without an eyes list, the Furby's theme picks a mix (spooky_eyes.MIXES).
+    The first theme is the main one: it goes in the DLC's animation 1, the
+    layout that has run on a Furby. one = True shows only that one.
+    """
+    mix = furby.get("eyes") or MIXES.get(furby.get("theme"), [furby.get("theme", "demon")])
+    mix = [mix] if isinstance(mix, str) else list(mix)
+    if one:
+        return mix[0], dict.fromkeys(clips, mix[0])
+    turns = [c for c in sorted(clips) if not clips[c].get("eyes")]
+    eyes = {c: mix[i % len(mix)] for i, c in enumerate(turns)}
+    eyes.update({c: clips[c]["eyes"] for c in clips if clips[c].get("eyes")})
+    return mix[0], eyes
 
 
 def encode_clip(name, spec, work_dir):
@@ -114,8 +134,15 @@ def build_show(show, out_dir="./build/halloween", skip_missing=False, dlc_in="./
         os.makedirs(work_dir, exist_ok=True)
         a18 = {k: encode_clip(k, v, work_dir) for k, v in clips.items()}
         codes = dict(zip(sorted(a18), slots, strict=False))  # checked above: there are enough slots
+        theme, eyes = clip_eyes(furby, clips, show["show"].get("one_eye_animation", False))
         dlc_out = build(
-            furby["theme"], clips={codes[k]: a18[k] for k in a18}, dlc_in=dlc_in, out_dir=out_dir, name=name
+            theme,
+            clips={codes[k]: a18[k] for k in a18},
+            dlc_in=dlc_in,
+            out_dir=out_dir,
+            name=name,
+            eyes={codes[k]: eyes[k] for k in a18},
+            frames=show["show"].get("eye_frames", FRAMES),
         )
         with open(dlc_out, "rb") as f:
             checksum = zlib.adler32(f.read())  # the Furby reports this for its active DLC
@@ -125,6 +152,7 @@ def build_show(show, out_dir="./build/halloween", skip_missing=False, dlc_in="./
             "clips": {
                 k: {
                     "action": list(codes[k]),
+                    "eyes": eyes[k],
                     "seconds": round((os.path.getsize(a18[k]) - 6) / A18_BYTES_PER_SECOND, 2),
                     # porch.py --rehearse plays this: just the snippet when the clip is cut
                     "source": preview_clip(k, clips[k], work_dir)

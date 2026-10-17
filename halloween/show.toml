@@ -10,16 +10,25 @@
 gap = 0.6           # seconds between one line ending and the next starting
 every = [20, 45]    # seconds between scenes, picked at random in this range
 cooldown = 20       # seconds after a scene when the button or motion sensor is ignored
+# Eyes: each clip shows one eye animation, from its Furby's eyes list (below).
+# Preview them all with: python spooky_eyes.py --preview (writes build/eyes/).
+eye_frames = 38            # frames per eye animation: 38 is the stock length; up to 95
+one_eye_animation = false  # true: every clip shows its Furby's first eyes, the one layout
+                           # tested on a Furby. Use it if python spooky_eyes.py --probe
+                           # shows that a second animation (0x8402) doesn't play.
 
 # Pink is the evil Furby: demon eyes, scary lines.
 [furbies.pink]
-theme = "demon"
+# Clips take turns through these, in clip-name order; give a clip its own with
+# eyes = "storm" in its table. The first is the main one. Each theme costs
+# about 37 KB of the DLC. Themes: demon, pumpkin, storm, bloodshot, ghost, hypno.
+eyes = ["demon", "bloodshot", "storm"]
 antenna = [255, 0, 0]  # antenna color while it speaks (red, green, blue)
 
 [furbies.pink.clips]
 cackle = "build/sfx/witch-cackle-0.wav"
 cackle2 = "build/sfx/witch-cackle-1.wav"
-scream = "build/sfx/scream-0.wav"
+scream = { path = "build/sfx/scream-0.wav", eyes = "storm" }
 moan = "build/sfx/ghost-moan-0.wav"
 midnight = "build/cloned/pink_dontfeed.wav"
 boo = "build/cloned/pink_boo.wav"
@@ -40,7 +49,7 @@ ghostbusters = { path = "build/music/ghostbusters.mp3", start = "0:11", seconds 
 
 # Blue is the good Furby: jack-o'-lantern eyes, friendly lines that undercut pink.
 [furbies.blue]
-theme = "pumpkin"
+eyes = ["pumpkin", "ghost", "hypno"]
 antenna = [255, 100, 0]
 
 [furbies.blue.clips]

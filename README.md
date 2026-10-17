@@ -281,16 +281,19 @@ For more details on preparing audio files and advanced multi-track configuration
 
 ## Example: Spooky Halloween eyes
 
-`spooky_eyes.py` draws glowing eyes (red demon eyes, or a jack-o'-lantern) and builds them into a DLC with custom audio:
+`spooky_eyes.py` draws animated eyes with Pillow and builds them into a DLC with custom audio. The themes are `demon` (a pulsing slit eye), `pumpkin` (a flickering jack-o'-lantern), `storm` (a lightning strike), `bloodshot` (a darting, veined eye), `ghost` (a bobbing ghost) and `hypno` (a spinning spiral):
 
 ```bash
 python spooky_eyes.py                     # demon eyes + Imperial March
 python spooky_eyes.py --theme pumpkin --song my_song.a18 --sting my_scream.a18
+python spooky_eyes.py --preview           # build/eyes/<theme>.gif for every theme
 ```
 
-It writes `build/spooky_<theme>.dlc`, plus a `preview.gif` of the eyes in `build/<theme>/`. The eyes play on actions `75-0-4-4` (with the song), `75-0-3-4` (with the sting) and `75-0-0-3`.
+It writes `build/spooky_<theme>.dlc`, plus a preview GIF of the eyes, rendered back out of the DLC, in `build/<theme>/`. The eyes play on actions `75-0-4-4` (with the song), `75-0-3-4` (with the sting) and `75-0-0-3`.
 
-The build copies Context's `hacked.dlc`, which [FurBLE](https://github.com/pdjstone/furby-web-bluetooth) ships and which is known to flash: every stock audio track is cut to 128 bytes, and apart from audio the result matches `hacked.dlc` section for section. The script refuses to write anything over about 350 KB, because bigger uploads time out.
+Each theme is three keyframes played across the animation's 38 frames in its own pattern, since every keyframe costs about 12 KB. The Halloween show puts several themes in each Furby's DLC, one animation each, and its clips take turns through them (see `eyes` in [halloween/show.toml](halloween/show.toml)). Only the first animation (`0x8401`) has been seen on a Furby. To check the rest, flash `python spooky_eyes.py --probe` and trigger the actions it lists; if `75-0-3-4` doesn't show green digits, set `one_eye_animation = true` in show.toml.
+
+The build copies Context's `hacked.dlc`, which [FurBLE](https://github.com/pdjstone/furby-web-bluetooth) ships and which is known to flash: every stock audio track is cut to 128 bytes, and apart from audio and eyes the result matches `hacked.dlc` section for section. The script refuses to write anything over about 350 KB, because bigger uploads time out.
 
 A DLC only changes what plays when a phone or computer triggers an action over Bluetooth. The Furby's own reactions to noises, petting and so on come from its built-in memory, so they sound the same with any DLC active. To try the eyes, flash the DLC (below), then trigger `75 0 4 4` from FurBLE's custom action box.
 

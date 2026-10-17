@@ -142,8 +142,14 @@ def make_voices(show, engine, only=None, voice=None, force=False, convert=to_wav
         os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
         with tempfile.TemporaryDirectory() as tmp:
             raw = os.path.join(tmp, "raw" + engine.suffix)
-            engine.speak(spec["text"], voices[name], raw)
-            convert(raw, path)
+            try:
+                engine.speak(spec["text"], voices[name], raw)
+                convert(raw, path)
+            except subprocess.CalledProcessError as e:
+                raise SystemExit(
+                    "%s.%s: couldn't make %s: %s stopped with an error (voice: %s). See the voices: %s"
+                    % (name, clip, path, os.path.basename(e.cmd[0]), voices[name], LIST_VOICES[engine.name])
+                ) from None
         log("%s.%s: %s (%s)" % (name, clip, path, voices[name] or "system voice"))
         made.append("%s.%s" % (name, clip))
     return made, kept

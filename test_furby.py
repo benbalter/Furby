@@ -2217,6 +2217,15 @@ class TestVoices(unittest.TestCase):
         self.assertIn("pink: no Albert voice here, so using the system voice.", log)
         self.assertEqual(voices.find_engine(lambda c: "/usr/bin/" + c if c == "espeak" else None).name, "espeak")
         self.assertIsNone(voices.find_engine(lambda c: None))
+        # A synthesizer that fails says which line and how to see the voices, not a traceback
+        import subprocess
+
+        def fail(src, out):
+            raise subprocess.CalledProcessError(1, ["/usr/bin/ffmpeg"])
+        with self.assertRaises(SystemExit) as e:
+            voices.make_voices(self.show, FakeEngine(), force=True, convert=fail, log=log.append)
+        self.assertIn("pink.boo: couldn't make", str(e.exception))
+        self.assertIn("ffmpeg stopped", str(e.exception))
 
     def test_main(self):
         """The command line lists lines, makes them, and says what to run next"""
@@ -2321,6 +2330,14 @@ class TestPackage(unittest.TestCase):
         self.assertIn("build/halloween/pink/toccata.wav", names)
         self.assertFalse(any(n.startswith("audio/") for n in names))
         self.assertIn("pink.gone: no build/cloned/pink_gone.wav, so it's left out of the rehearsal.", log)
+        # A commit GitHub has pins the friend's code to the version that built the show
+        from types import SimpleNamespace
+        package.main([], log=log.append, run=lambda cmd, **kw: SimpleNamespace(stdout="abc1234\n"))
+        with zipfile.ZipFile("build/furby-show.zip") as z:
+            readme = z.read("README_FIRST.txt").decode()
+        self.assertIn("git checkout abc1234", readme)
+        self.assertIn("archive/abc1234.zip", readme)
+        self.assertEqual(package.published_commit(lambda cmd, **kw: SimpleNamespace(stdout="")), None)
 
     def test_refuses_stale_dlc(self):
         """A DLC that doesn't match show.json's checksum stops the zip"""

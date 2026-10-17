@@ -23,6 +23,7 @@ USAGE:
 import argparse
 import json
 import os
+import subprocess
 import zipfile
 import zlib
 
@@ -52,10 +53,10 @@ Everything below runs in Terminal (on a Mac, press Command-Space and type
 2. Get the show's code and go into its folder:
 
        git clone https://github.com/benbalter/Furby.git
-       cd Furby
+       cd Furby{checkout}
 
-   (Or download https://github.com/benbalter/Furby/archive/refs/heads/master.zip,
-   unzip it, and cd into that folder.)
+   (Or download https://github.com/benbalter/Furby/archive/{ref}.zip,
+   unzip it, and cd into that folder.){pinned}
 
 3. Unzip this bundle into that folder, so show.json lands at
    Furby/build/halloween/show.json. If the bundle is in Downloads:
@@ -124,8 +125,18 @@ def bundle_files(show_dir=SHOW_DIR, rehearsal=False, log=print):
     return plan, files
 
 
-def package(out, show_dir=SHOW_DIR, rehearsal=False, log=print):
-    """Write the zip; returns the names in it."""
+def published_commit(run=subprocess.run):
+    """This checkout's commit if GitHub has it, so the friend can get the code that built the show; else None."""
+    try:
+        sha = run(["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True).stdout.strip()
+        pushed = sha and run(["git", "branch", "-r", "--contains", sha], capture_output=True, text=True).stdout.strip()
+    except OSError:  # no git
+        return None
+    return sha if pushed else None
+
+
+def package(out, show_dir=SHOW_DIR, rehearsal=False, log=print, commit=None):
+    """Write the zip; returns the names in it. commit points the friend at the code that built it."""
     plan, files = bundle_files(show_dir, rehearsal, log)
     checksums = ", ".join("%s %d" % (n, f["checksum"]) for n, f in plan["furbies"].items())
     readme = README.format(
@@ -133,6 +144,11 @@ def package(out, show_dir=SHOW_DIR, rehearsal=False, log=print):
         rehearse=REHEARSE if rehearsal else "",
         run_step=6 if rehearsal else 5,
         checksums=checksums,
+        checkout="\n       git checkout %s" % commit if commit else "",
+        ref=commit or "refs/heads/master",
+        pinned="\n   That's the version this bundle was built with, so the code and the\n   show agree."
+        if commit
+        else "",
     )
     os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
@@ -142,13 +158,14 @@ def package(out, show_dir=SHOW_DIR, rehearsal=False, log=print):
     return ["README_FIRST.txt"] + sorted(files)
 
 
-def main(argv=None, log=print):
+def main(argv=None, log=print, run=subprocess.run):
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--out", default="build/furby-show.zip", help="the zip to write (default: %(default)s)")
     parser.add_argument("--show-dir", default=SHOW_DIR, help="the built show (default: %(default)s)")
     parser.add_argument("--rehearsal", action="store_true", help="add each clip's audio, for porch.py --rehearse")
     args = parser.parse_args(argv)
-    names = package(args.out, args.show_dir, args.rehearsal, log)
+    commit = published_commit(run)
+    names = package(args.out, args.show_dir, args.rehearsal, log, commit)
     size = os.path.getsize(args.out)
     log("Wrote %s (%d files, %d KB):" % (args.out, len(names), round(size / 1024)))
     for name in names:
@@ -157,6 +174,8 @@ def main(argv=None, log=print):
         log("\nIt's outside build/, which git ignores, so take care not to commit it.")
     log("\n" + WARNING % args.out)
     log("Your friend unzips it into their copy of the repository and follows README_FIRST.txt.")
+    if not commit:
+        log("(This commit isn't on GitHub, so README_FIRST.txt has them get the latest code, which may not match.)")
 
 
 if __name__ == "__main__":

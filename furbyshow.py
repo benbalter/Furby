@@ -24,6 +24,13 @@ GP_LISTEN = "dab91382-b5a1-e29c-b041-bcd562613bde"
 KEEPALIVE = b"\x20\x06"  # "I'm here", which keeps a connected Furby awake
 KEEPALIVE_AFTER_MS = 3000  # ping after this long without a command, as FurBLE does
 DLC_INFO = b"\x72"
+# Status notifications ("FurbyMessage", as PyFluff names them)
+SPEECH_PLAYING = b"\x20\x07"  # still busy with the last sequence: the action runs, but without its audio
+SEQUENCE_PLAYING = b"\x20\x0c"  # the action started, audio and all
+SEQUENCE_CANCELLED = b"\x20\x0d"
+SEQUENCE_ENDED = b"\x20\x0e"
+PLAY_REPLY_MS = 1000  # a Furby answers a trigger within about 0.1 s
+PLAY_PATIENCE_MS = 25000  # the longest stock sequence in a scene slot runs about 21 s
 RETRY_FIND_S = 15  # how often to look again for a missing Furby
 
 
@@ -106,17 +113,23 @@ class Furby:
 
     def on_response(self, data):
         for entry in self.waiting:
-            if entry[1] is None and bytes(data[: len(entry[0])]) == entry[0]:
+            if entry[1] is None and any(bytes(data[: len(p)]) == p for p in entry[0]):
                 entry[1] = bytes(data)
                 entry[2].set()
 
     async def command(self, data, expect=None, timeout=5):
-        entry = [bytes(expect), None, asyncio.Event()] if expect else None
+        """Send data (None sends nothing) and, given expect, return the reply that starts with it.
+
+        expect can be a tuple of prefixes, to take whichever reply comes first.
+        """
+        prefixes = expect if isinstance(expect, tuple) else (expect,)
+        entry = [[bytes(p) for p in prefixes], None, asyncio.Event()] if expect else None
         if entry:
             self.waiting.append(entry)
-        self.last_sent = ticks_ms()
         try:
-            await self._write(bytes(data))
+            if data is not None:
+                self.last_sent = ticks_ms()
+                await self._write(bytes(data))
             if entry:
                 await asyncio.wait_for(entry[2].wait(), timeout)
                 return entry[1]
@@ -142,8 +155,32 @@ class Furby:
                 if attempt == attempts - 1:
                     raise
 
-    async def play(self, action):
-        await self.command(trigger_command(action))
+    async def play(self, action, patience_ms=PLAY_PATIENCE_MS):
+        """Trigger an action; returns False if the Furby stayed too busy to play its audio.
+
+        A sequence's body movement and eye delays often outlast its clip, by up
+        to 20 s. A Furby still running one answers a new trigger with 20:07 and
+        plays the action without its audio. So on 20:07, wait for the running
+        sequence to end (20:0e) and trigger again. No reply at all counts as
+        played, so a missed notification can't stall the show.
+        """
+        start = ticks_ms()
+        while True:
+            try:
+                reply = await self.command(
+                    trigger_command(action), expect=(SEQUENCE_PLAYING, SPEECH_PLAYING), timeout=PLAY_REPLY_MS / 1000
+                )
+            except asyncio.TimeoutError:
+                return True
+            if reply[:2] == SEQUENCE_PLAYING:
+                return True
+            left = patience_ms - ticks_diff(ticks_ms(), start)
+            if left <= 0:
+                return False
+            try:  # 20:0e can slip past between the replies, so don't wait on it for long
+                await self.command(None, expect=(SEQUENCE_ENDED, SEQUENCE_CANCELLED), timeout=min(left, 2000) / 1000)
+            except asyncio.TimeoutError:
+                pass
 
     async def set_antenna(self, rgb):
         await self.command(antenna_command(rgb))
@@ -212,6 +249,12 @@ class Show:
                 continue
             if expected.get("checksum") not in (None, furby.checksum):
                 self.log("%s.dlc on the Furby doesn't match this show; reflash it (clips may be wrong)" % furby)
+            other = self.furbies.get(furby.name)
+            if other is not None and other.connected() and other.address != furby.address:
+                # Easy to do in FurBLE, which keeps the last file you picked
+                self.log("Two Furbies have %s.dlc; flash the right DLC to one of them" % furby)
+                await furby.disconnect()
+                continue
             self.furbies[furby.name] = furby
             self.log("Connected to %s" % furby)
             asyncio.create_task(furby.keep_alive())
@@ -233,8 +276,10 @@ class Show:
         for furby, _, antenna in lines:
             if antenna:
                 await furby.set_antenna(antenna)
-        for furby, info, _ in lines:
-            await furby.play(info["action"])
+        parts = step_parts(step)
+        for i, (furby, info, _) in enumerate(lines):
+            if not await furby.play(info["action"]):
+                self.log("%s skipped: %s stayed busy with its last sequence" % (parts[i], furby))
         await self.sleep(max(info["seconds"] for _, info, _ in lines))
         for furby, _, antenna in lines:
             if antenna:

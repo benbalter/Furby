@@ -5,7 +5,7 @@
 Build the two-Furby Halloween show from halloween/show.toml.
 
 Each Furby gets its own DLC: its eye theme, plus one clip on each of a set of
-75 actions (see spooky_eyes.scene_slots). A DLC only plays when something
+75 actions (see quick_slots). A DLC only plays when something
 triggers those actions over Bluetooth, so something has to do that on the
 night. This also writes build/halloween/show.json, which the show engine
 (furbyshow.py) plays, from a computer with porch.py or from an ESP32 with
@@ -37,6 +37,20 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "aud
 from encode_a18 import encode  # noqa: E402
 
 A18_BYTES_PER_SECOND = 2000  # 16 kbit/s
+DLC_MOTOR = 0xC  # top nibble of a sequence's motor word when it runs one of the DLC's own routines
+
+
+def quick_slots(D):
+    """Scene slots whose sequence ends soon after its clip, in the order to fill them.
+
+    A Furby stays busy until a sequence's body movement and eye delays finish,
+    and plays anything triggered before then without its audio. Timed on a
+    real Furby, the slots that run the DLC's own motor routines take 10-21 s
+    whatever the clip, while those using built-in movements take about 1-9 s.
+    """
+    seqs = D.dlc_sections["SEQ"].sequences
+    tree = D.dlc_sections["XLS"].action_tree
+    return [c for c in scene_slots(D) if seqs[tree[c[0]][c[1]][c[2]][c[3]]["seq"]][2] >> 12 != DLC_MOTOR]
 
 
 def load_show(path="./halloween/show.toml"):
@@ -87,7 +101,7 @@ def preview_clip(name, spec, work_dir):
 def build_show(show, out_dir="./build/halloween", skip_missing=False, dlc_in="./dlc/dlc2/tu003410.dlc"):
     """Build each Furby's DLC and show.json; returns show.json's path."""
     os.makedirs(out_dir, exist_ok=True)
-    slots = scene_slots(dlc(dlc_in))
+    slots = quick_slots(dlc(dlc_in))
     plan = {
         "gap": show["show"]["gap"],
         "every": show["show"]["every"],

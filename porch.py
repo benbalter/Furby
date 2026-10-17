@@ -22,7 +22,7 @@ USAGE:
 
 --rehearse needs no Furbies: it plays each clip's source audio here, with the
 show's timing, so you can tune lines and scenes before flashing anything.
-Running the show needs bleak (pip install bleak).
+Running the show needs bleak, which `uv run porch.py` installs.
 """
 
 import argparse
@@ -102,6 +102,7 @@ class RehearsalFurby(furbyshow.Furby):
     async def _write(self, data):
         if data[0] == 0x13:
             play_audio(self.sources[tuple(data[2:6])])
+            self.on_response(furbyshow.SEQUENCE_PLAYING)  # answer like a Furby, so play() doesn't wait
         elif data[0] == 0x14 and any(data[1:4]):
             print("  %s antenna glows rgb%s" % (self, tuple(data[1:4])))
 
@@ -166,6 +167,14 @@ async def main(args):
     if args.rehearse:
         await rehearse(plan, args)
         return
+    try:
+        import bleak  # noqa: F401
+    except ImportError:
+        raise SystemExit(
+            "Talking to the Furbies needs bleak. Run this with uv, which installs it:\n"
+            "  uv run porch.py %s\n"
+            "(--rehearse works without it)." % " ".join(sys.argv[1:])
+        ) from None
     show = furbyshow.Show(plan, find)
     if args.list:
         for furby in await find([]):

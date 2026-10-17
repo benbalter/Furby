@@ -264,6 +264,7 @@ class TestHalloween(unittest.TestCase):
             for info in plan["furbies"][name]["clips"].values():
                 code = tuple(info["action"])
                 self.assertIn(code, spooky_eyes.scene_slots(D))
+                self.assertIn(code, halloween.quick_slots(D))  # not one that runs 10-21 s
                 seq = D.dlc_sections["XLS"].action_tree[code[0]][code[1]][code[2]][code[3]]["seq"]
                 self.assertNotIn(0x8096, D.dlc_sections["SEQ"].sequences[seq][3:-1])
                 self.assertGreater(info["seconds"], 1)
@@ -312,6 +313,8 @@ class TestHalloween(unittest.TestCase):
 
             async def _write(self, data):
                 events.append((self.name, data[0]))
+                if data[0] == 0x13:
+                    self.on_response(furbyshow.SEQUENCE_PLAYING)
 
         async def sleep(seconds):
             events.append(("sleep", seconds))
@@ -339,6 +342,39 @@ class TestHalloween(unittest.TestCase):
         asyncio.run(show.play_step("pink.a"))
         self.assertEqual(events[:2], [("sleep", 1.0), ("pink", 0x14)])
 
+    def test_play_waits_while_busy(self):
+        """A Furby still running its last sequence answers 20:07; play() waits for 20:0e and triggers again"""
+        import asyncio
+
+        import furbyshow
+        sent = []
+
+        class Busy(furbyshow.Furby):
+            def __init__(self, busy_for):
+                super().__init__("aa")
+                self.busy_for = busy_for  # how many triggers it answers with 20:07
+
+            def connected(self):
+                return True
+
+            async def _write(self, data):
+                sent.append(bytes(data))
+                if data[0] != 0x13:
+                    return
+                if self.busy_for:
+                    self.busy_for -= 1
+                    self.on_response(furbyshow.SPEECH_PLAYING)
+                    asyncio.get_running_loop().call_later(0.05, self.on_response, furbyshow.SEQUENCE_ENDED)
+                else:
+                    self.on_response(furbyshow.SEQUENCE_PLAYING)
+
+        self.assertTrue(asyncio.run(Busy(2).play((75, 0, 0, 2))))
+        self.assertEqual([d for d in sent if d[0] == 0x13], [bytes([0x13, 0, 75, 0, 0, 2])] * 3)
+        # One that never frees up gives up once its patience runs out
+        sent.clear()
+        self.assertFalse(asyncio.run(Busy(99).play((75, 0, 0, 2), patience_ms=200)))
+        self.assertGreater(len(sent), 1)
+
     def test_greetings_and_cooldown(self):
         """A trigger plays a greeting and the timer the rest; only the sensor waits out a cooldown"""
         import asyncio
@@ -352,6 +388,8 @@ class TestHalloween(unittest.TestCase):
 
             async def _write(self, data):
                 sent.append(data)
+                if data[0] == 0x13:
+                    self.on_response(furbyshow.SEQUENCE_PLAYING)
 
         async def sleep(seconds):
             pass
@@ -436,19 +474,22 @@ class TestHalloween(unittest.TestCase):
             async def _write(self, data):
                 sent.append((self.address, data))
                 # Answer like a Furby: DLC active in slot 13, named after its file
-                if data == furbyshow.DLC_INFO:
+                if data[0] == 0x13:
+                    self.on_response(furbyshow.SEQUENCE_PLAYING)
+                elif data == furbyshow.DLC_INFO:
                     self.on_response(bytes.fromhex("720000200000002000"))
                 elif data == bytes([0x73, 13]):
                     self.on_response(b"\x73\x0d____" + self.dlc + bytes.fromhex("03a236cafd6934"))
 
         stray = FakeFurby("cc", b"SPOOKYDE")
+        twin = FakeFurby("dd", b"PINK")  # pink.dlc flashed to both Furbies by mistake
         attempts = []
 
         async def find(known):
             attempts.append(known)
             if len(attempts) == 1:
                 raise OSError("scan failed")  # the show should shrug this off and retry
-            furbies = [FakeFurby("aa", b"PINK"), FakeFurby("bb", b"BLUE"), stray]
+            furbies = [FakeFurby("aa", b"PINK"), FakeFurby("bb", b"BLUE"), stray, twin]
             for f in furbies:
                 await f.identify()
             return furbies
@@ -493,6 +534,9 @@ class TestHalloween(unittest.TestCase):
         self.assertEqual(waits[0], furbyshow.RETRY_FIND_S)  # the failed scan didn't end the show
         self.assertEqual(sorted(show.furbies), ["blue", "pink"])
         self.assertTrue(stray.dropped)  # a Furby with someone else's DLC is let go
+        self.assertTrue(twin.dropped)  # so is a second Furby with the same DLC
+        self.assertEqual(show.furbies["pink"].address, "aa")
+        self.assertTrue(any("Two Furbies have pink.dlc" in line for line in logs))
         self.assertTrue(any("reflash" in line and "pink" in line for line in logs))
         plays = [(a, d) for a, d in sent if d[0] == 0x13]
         self.assertEqual(plays, [("aa", bytes([0x13, 0, 75, 0, 0, 2])), ("bb", bytes([0x13, 0, 75, 0, 4, 4]))])

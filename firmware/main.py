@@ -20,6 +20,7 @@ Copy everything to the board with firmware/deploy.sh.
 
 import asyncio
 import json
+from collections import deque
 
 import aioble
 import bluetooth
@@ -62,6 +63,10 @@ class AiobleFurby(furbyshow.Furby):
             service = await self.connection.service(SERVICE)
             self.tx = await service.characteristic(WRITE)
             self.rx = await service.characteristic(LISTEN)
+            # aioble keeps only the latest notification by default, and sensor
+            # reports arrive several times a second, so they'd crowd out the
+            # 20:0c / 20:07 / 20:0e replies that play() waits on. Keep them all.
+            self.rx._notify_queue = deque((), 32)
             await self.rx.subscribe(notify=True)
             asyncio.create_task(self.listen())
             await self.identify()

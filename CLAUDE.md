@@ -6,15 +6,15 @@ A fork of [ctxis/Furby](https://github.com/ctxis/Furby) (Python tools for Furby 
 
 ## Commands
 
-Python 3.11+ (`halloween.py` uses `tomllib`). Dependencies: [requirements.txt](requirements.txt) (Pillow, a1800-codec); ffmpeg for audio conversion.
+Python 3.11+ (`halloween.py` uses `tomllib`). Dependencies are in [pyproject.toml](pyproject.toml) (Pillow, a1800-codec, bleak; ruff in the `dev` group) and locked in `uv.lock`, so `uv run <script>.py` just works; ffmpeg for audio conversion.
 
 ```sh
 # All tests (CI runs exactly this on 3.11–3.13)
-uv run --no-project --python 3.12 --with pillow --with a1800-codec python -m unittest test_furby -v
+uv run python -m unittest test_furby -v
 # One class or test
-uv run --no-project --python 3.12 --with pillow --with a1800-codec python -m unittest test_furby.TestHalloween.test_build_show
+uv run python -m unittest test_furby.TestHalloween.test_build_show
 # Lint and format (config in pyproject.toml)
-uvx ruff check . && uvx ruff format --check .
+uv run ruff check . && uv run ruff format --check .
 ```
 
 - The MicroPython tests (`test_show_runs_on_micropython`, `test_compiles_for_micropython`) skip unless `micropython` is on PATH (`brew install micropython`). CI runs them in a macOS job, and also compiles the board files with `mpy-cross`.
@@ -23,11 +23,11 @@ uvx ruff check . && uvx ruff format --check .
 Halloween show pipeline:
 
 ```sh
-python halloween.py [--skip-missing]   # halloween/show.toml → build/halloween/{pink,blue}.dlc + show.json
-python porch.py --list | --clip pink.cackle | --scene 0   # run/test the show from a computer (needs bleak)
-python porch.py --rehearse [--scene N]  # play scenes on this computer's speakers; no Furbies or bleak needed
+uv run halloween.py [--skip-missing]   # halloween/show.toml → build/halloween/{pink,blue}.dlc + show.json
+uv run porch.py --list | --clip pink.cackle | --scene 0   # run/test the show from a computer
+uv run porch.py --rehearse [--scene N]  # play scenes on this computer's speakers; no Furbies needed
 firmware/deploy.sh                      # copy the show to an ESP32 running MicroPython (uses uvx mpremote/mpy-cross)
-python spooky_eyes.py --theme pumpkin   # standalone eyes DLC
+uv run spooky_eyes.py --theme pumpkin   # standalone eyes DLC
 ```
 
 ## Architecture
@@ -37,6 +37,8 @@ python spooky_eyes.py --theme pumpkin   # standalone eyes DLC
 **Hardware facts that shape the design** (from testing on a real Furby):
 - A DLC only changes what plays when an action is **triggered over Bluetooth**. The Furby's own reactions (noise, petting, input 20 and so on) come from built-in memory, whatever DLC is active. So the show needs a controller that sends the triggers.
 - Custom clips go on input-75 ("app video") actions. `spooky_eyes.scene_slots()` returns the 75 actions whose track and sequence no other 75 action shares, so each clip plays only where intended.
+- A triggered action's sequence keeps the Furby busy until its body movement and eye delays finish, which is often long after its clip ends. Trigger it again before then and it replies `20:07` (speech playing) and runs the action **without audio**; a normal start replies `20:0c`, and the end sends `20:0e`. `Furby.play()` retries on `20:07`. Slots whose motor word is `0xc4xx` (the DLC's own routines) run 10–21 s, so `halloween.quick_slots()` skips them; the built-in `0xe0xx` movements take about 1–9 s and vary from run to run.
+- Two Furby Connects near each other sing together, and while they do neither one advertises, so nothing can find them (they seem to pair; the F2F characteristics suggest so, unverified). Power them up one at a time and let the show connect to each one first.
 - Uploads time out above about 350 KB (`MAX_UPLOAD`). Audio costs about 2 KB per second, and each slot stores its own copy of a clip.
 - The Furby stores DLCs under 8.3 names (`____PINK.DLC`). The show tells the Furbies apart by their active DLC's name, and checks its Adler-32 checksum against `show.json`.
 

@@ -319,7 +319,7 @@ def changes_message(old, new, deploy="uv run deploy.py --no-build"):
     dlcs = " and ".join("%s.dlc" % n for n in changed)
     if len(changed) == len(names):
         return "%s changed: reflash %s and redeploy show.json (%s --esp32)." % (
-            dlcs, "both" if len(names) == 2 else "every Furby", deploy)  # fmt: skip
+            dlcs, {1: names[0], 2: "both"}.get(len(names), "every Furby"), deploy)  # fmt: skip
     only = " ".join("--only %s" % n for n in changed)
     return "Only %s changed: reflash %s and redeploy show.json (%s %s --esp32)." % (
         dlcs, " and ".join(changed), deploy, only)  # fmt: skip

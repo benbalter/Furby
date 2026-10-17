@@ -20,7 +20,7 @@ AIOBLE=(aioble-core@0.4.0 aioble-central@0.3.0 aioble-client@0.3.0)
 SHOW=build/halloween/show.json
 
 if [[ ! -f $SHOW ]]; then
-  echo "No $SHOW yet. Run: python halloween.py" >&2
+  echo "No $SHOW yet. Run: uv run halloween.py" >&2
   exit 1
 fi
 

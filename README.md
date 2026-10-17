@@ -480,6 +480,12 @@ Change it in [`halloween/show.toml`](halloween/show.toml) with `light` on a clip
 
 [`probe.py`](probe.py) measures what a Furby does with each slot. `uv run probe.py build slots` builds a DLC where every slot says its own number, and `uv run probe.py build motions e000-e017` one where slot N says "move N" and runs just that body movement. Flash it with `flash.py`, then `uv run probe.py run slots` plays each slot in turn, times it from start to finish, and saves the table in `build/probe/`. Add `--reverse`, `--times 3` or `--only 2,5` to dig into odd ones.
 
+### Deploy and test in two commands
+
+`uv run deploy.py` does steps 2 and 3 for you. It builds the show, then for each Furby asks you to wake just that one, says which DLC it has now, blinks its antenna in its show color, and flashes it once you confirm it's the right one. It refuses to put both DLCs on the same Furby, and `--esp32` copies the show to the board afterwards. Wake one Furby at a time: two identical Furbies that see each other pair up and stop showing up. `--only blue` does just one, `--no-build` flashes what's already built, and `--yes` asks nothing, for scripts.
+
+Then run `uv run porch.py --check` and wake the Furbies, one and then the other once it connects. It plays every clip once on each Furby and uses the Furby's own replies to report which clips played, which were skipped because the Furby was still busy, and which got no reply. It also times each clip's whole sequence (movement and eyes as well as audio) and flags any that run well past their audio, since the Furby can't play its next line until the sequence ends. It checks each Furby's DLC against `show.json`, writes the timings to `build/halloween/timings.json`, and exits non-zero if anything failed.
+
 ## License
 
 Files marked `SPDX-License-Identifier: MIT` (the Halloween show, the firmware, and the audio tools in `audioutils/` that carry that header) are available under the [MIT License](LICENSES/MIT.txt). The rest of the repository comes from [Context's original project](https://github.com/ctxis/Furby), which doesn't state a license, so those files stay under Context's terms. Hasbro owns the Furby name and the stock DLC, audio and artwork included here.

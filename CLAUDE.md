@@ -27,6 +27,8 @@ uv run halloween.py [--skip-missing]   # halloween/show.toml → build/halloween
 uv run porch.py --list | --clip pink.cackle | --scene 0   # run/test the show from a computer
 uv run porch.py --rehearse [--scene N]  # play scenes on this computer's speakers; no Furbies needed
 uv run flash.py build/halloween/pink.dlc  # flash a DLC from this computer (one Furby awake, no reset needed)
+uv run deploy.py [--only pink] [--no-build] [--yes] [--esp32]  # guided: build, then wake/confirm/flash each Furby in turn
+uv run porch.py --check                 # play every clip once per Furby; played/skipped/no reply, sequence timings, checksums
 firmware/deploy.sh                      # copy the show to an ESP32 running MicroPython (uses uvx mpremote/mpy-cross)
 uv run spooky_eyes.py --theme pumpkin   # standalone eyes DLC
 uv run spooky_eyes.py --preview         # build/eyes/<theme>.gif and .png for every eye theme

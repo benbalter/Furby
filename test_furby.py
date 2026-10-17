@@ -1551,5 +1551,274 @@ class TestDoctor(unittest.TestCase):
         self.assertFalse(doctor.check_packages(r, lambda mod: None if mod == "bleak" else object()))
         self.assertIn("uv run doctor.py", self.lines[-1])
 
+class FakeBleFurby:
+    """A Furby as bleak sees it, standing in for both the BLEDevice and the BleakClient.
+
+    It answers DLC info (0x72/0x73), takes uploads the way TestFlash's fake
+    does, and replies to triggers as scripted in actions: {action: (kind,
+    seconds)}, kind "play" (20:0c, then 20:0e after seconds), "busy" (20:07)
+    or "silent" (nothing). Like CoreBluetooth, it refuses a second start_notify.
+    """
+
+    def __init__(self, address, dlc_name=None, checksum=0, actions=None):
+        self.address, self.name = address, "Furby"
+        self.slots = {13: (dlc_name.upper().rjust(8, "_"), checksum)} if dlc_name else {}
+        self.active = set(self.slots)
+        self.actions = actions or {}
+        self.is_connected, self.notify, self.antenna, self.triggers = False, {}, [], []
+        self.upload, self.received = None, b""
+
+    async def connect(self, timeout=None):
+        self.is_connected = True
+
+    async def disconnect(self):
+        self.is_connected = False
+        self.notify.clear()
+
+    async def start_notify(self, uuid, cb):
+        if uuid in self.notify:
+            raise ValueError("Characteristic notifications already started")
+        self.notify[uuid] = cb
+
+    async def stop_notify(self, uuid):
+        del self.notify[uuid]
+
+    def say(self, data):
+        import furbyshow
+        if furbyshow.GP_LISTEN in self.notify:
+            self.notify[furbyshow.GP_LISTEN](None, bytes(data))
+
+    def dlc(self):
+        """(name, checksum) of the active DLC, or None."""
+        return self.slots[min(self.active)] if self.active else None
+
+    async def write_gatt_char(self, uuid, data, response=False):
+        import asyncio
+        import zlib
+
+        import flash
+        import furbyshow
+        data = bytes(data)
+        if uuid == flash.FILE_WRITE:
+            self.received += data
+            if len(self.received) == self.upload[1]:
+                self.slots[12] = (self.upload[0], zlib.adler32(self.received))
+                self.say([0x24, 5])
+            return
+        if uuid != furbyshow.GP_WRITE:
+            return
+        cmd = data[0]
+        bits = lambda s: sum(1 << i for i in s)  # noqa: E731
+        if cmd == 0x72:
+            f, a = bits(self.slots), bits(self.active)
+            self.say([0x72, 0, 0, f >> 8, f & 0xFF, 0, 0, a >> 8, a & 0xFF])
+        elif cmd == 0x73:
+            name, checksum = self.slots[data[1]]
+            self.say(bytes([0x73, data[1]]) + name.encode() + bytes(3) + checksum.to_bytes(4, "big"))
+        elif cmd == 0x62:
+            self.active.discard(data[1])
+            self.say([0xDC, data[1], 0])
+        elif cmd == 0x74:
+            del self.slots[data[1]]
+            self.say([0x74, data[1]])
+        elif cmd == 0x50:
+            self.upload, self.received = (data[6:14].decode(), int.from_bytes(data[2:5], "big")), b""
+            self.say([0x24, 2])
+        elif cmd == 0x60:
+            self.loaded = data[1]
+            self.say([0xDC, data[1], 1])
+        elif cmd == 0x61:
+            self.active = {self.loaded}
+            self.say([0xDC, self.loaded, 2])
+        elif cmd == 0x14:
+            self.antenna.append(tuple(data[1:4]))
+        elif cmd == 0x13:
+            action = tuple(data[2:6])
+            self.triggers.append(action)
+            kind, seconds = self.actions.get(action, ("play", 0.02))
+            if kind == "play":
+                self.say(furbyshow.SEQUENCE_PLAYING)
+                asyncio.get_running_loop().call_later(seconds, self.say, furbyshow.SEQUENCE_ENDED)
+            elif kind == "busy":
+                self.say(furbyshow.SPEECH_PLAYING)
+                asyncio.get_running_loop().call_later(0.01, self.say, furbyshow.SEQUENCE_ENDED)
+
+
+def fake_bleak(scans):
+    """A stand-in bleak module: BleakClient(device) is the FakeBleFurby itself, and each
+    BleakScanner.discover() returns the next list in scans (the last one repeats)."""
+    import types
+    bleak = types.ModuleType("bleak")
+    bleak.BleakClient = lambda device, disconnected_callback=None, timeout=None: device
+
+    class BleakScanner:
+        @staticmethod
+        async def discover(timeout=None):
+            return scans.pop(0) if len(scans) > 1 else scans[0]
+
+    bleak.BleakScanner = BleakScanner
+    return bleak
+
+
+class TestDeploy(unittest.TestCase):
+    """deploy.py walks someone through flashing both Furbies, one at a time"""
+
+    def setUp(self):
+        import json
+        import zlib
+        self.temp_dir = tempfile.mkdtemp()
+        self.plan = {"gap": 0, "every": [30, 60], "scenes": [], "furbies": {}}
+        for name, color in (("pink", [255, 0, 120]), ("blue", [0, 0, 255])):
+            data = bytes([len(name)]) * 300 + name.encode()
+            with open(os.path.join(self.temp_dir, name + ".dlc"), "wb") as f:
+                f.write(data)
+            self.plan["furbies"][name] = {"checksum": zlib.adler32(data), "antenna": color, "clips": {}}
+        self.show = os.path.join(self.temp_dir, "show.json")
+        with open(self.show, "w") as f:
+            json.dump(self.plan, f)
+
+    def tearDown(self):
+        shutil.rmtree(self.temp_dir)
+
+    def deploy(self, argv, scans, answers=None, run=None):
+        """Run deploy.main with a fake bleak; returns (results or the DeployError, prompts, log)."""
+        import sys
+        from unittest import mock
+
+        import deploy
+        prompts, log = [], []
+
+        def ask(prompt):
+            prompts.append(prompt)
+            if answers is None:
+                raise AssertionError("asked %r with --yes" % prompt)
+            return answers.pop(0)
+
+        args = deploy.parse_args(["--no-build", "--show", self.show] + argv)
+        with mock.patch.dict(sys.modules, {"bleak": fake_bleak(scans)}), mock.patch.object(deploy, "BLINK_S", 0):
+            try:
+                result = deploy.main(args, ask=ask, log=log.append, run=run)
+            except deploy.DeployError as e:
+                result = e
+        return result, prompts, log
+
+    def test_guided_deploy(self):
+        """Two awake Furbies get a retry; each one is blinked, confirmed and flashed with its own DLC"""
+        pink = FakeBleFurby("aa", "TU003410", 1)  # the stock DLC
+        blue = FakeBleFurby("bb")  # nothing on it yet
+        result, prompts, log = self.deploy([], [[pink, blue], [pink], [blue]], ["", "", "y", "", "y"])
+        self.assertEqual(set(result), {"pink", "blue"}, log)
+        self.assertEqual(pink.dlc(), ("____PINK", self.plan["furbies"]["pink"]["checksum"]))
+        self.assertEqual(blue.dlc(), ("____BLUE", self.plan["furbies"]["blue"]["checksum"]))
+        self.assertTrue(any("Found 2 Furbies" in line for line in log))
+        self.assertTrue(any("tu003410.dlc active" in line for line in log))
+        self.assertTrue(any("no DLC active" in line for line in log))
+        self.assertIn("Put the pink Furby to sleep", prompts[3])
+        self.assertIn((255, 0, 120), pink.antenna)  # blinked in its show colour
+        self.assertEqual(pink.antenna[-1], (0, 255, 0))  # then green when flashed
+        self.assertFalse(pink.is_connected or blue.is_connected)
+        self.assertIn("porch.py --check", log[-1])
+
+    def test_wrong_one_asks_again(self):
+        pink = FakeBleFurby("aa")
+        result, prompts, _ = self.deploy(["--only", "pink"], [[pink]], ["", "n", "", "y"])
+        self.assertEqual(list(result), ["pink"])
+        self.assertEqual(len(prompts), 4)
+
+    def test_same_furby_twice(self):
+        """The Furby just flashed pink is refused for blue"""
+        import deploy
+        pink = FakeBleFurby("aa")
+        result, _, _ = self.deploy([], [[pink]], ["", "y", ""])
+        self.assertIsInstance(result, deploy.DeployError)
+        self.assertIn("just flashed as pink", str(result))
+        self.assertEqual(pink.dlc()[0], "____PINK")
+
+    def test_yes(self):
+        """--yes never asks: it flashes, skips one already up to date, and stops rather than retrying"""
+        import deploy
+        furby = FakeBleFurby("aa")
+        result, _, _ = self.deploy(["--yes", "--only", "blue"], [[furby]])
+        self.assertEqual(furby.dlc()[0], "____BLUE")
+        self.assertIn("flashed", result["blue"])
+        result, _, _ = self.deploy(["--yes", "--only", "blue"], [[furby]])
+        self.assertEqual(result["blue"], "already up to date")
+        # A Furby with this show's blue.dlc isn't overwritten with pink's unless someone says so
+        result, _, _ = self.deploy(["--yes", "--only", "pink"], [[furby]])
+        self.assertIsInstance(result, deploy.DeployError)
+        self.assertIn("blue.dlc", str(result))
+        self.assertEqual(furby.dlc()[0], "____BLUE")
+        result, _, _ = self.deploy(["--yes"], [[FakeBleFurby("aa"), FakeBleFurby("bb")]])
+        self.assertIn("Found 2 Furbies", str(result))
+        result, _, _ = self.deploy(["--yes"], [[]])
+        self.assertIn("No Furby found", str(result))
+        result, _, _ = self.deploy(["--yes", "--only", "green"], [[]])
+        self.assertIn("no green Furby", str(result))
+
+    def test_stale_dlc_and_esp32(self):
+        from unittest import mock
+
+        import deploy
+        ran = []
+
+        def run(cmd):
+            ran.append(cmd)
+            return mock.Mock(returncode=0)
+
+        result, _, _ = self.deploy(["--yes", "--only", "pink", "--esp32"], [[FakeBleFurby("aa")]], run=run)
+        self.assertEqual(result["esp32"], "show copied")
+        self.assertTrue(ran[0][0].endswith(os.path.join("firmware", "deploy.sh")))
+        with open(os.path.join(self.temp_dir, "pink.dlc"), "ab") as f:
+            f.write(b"changed")
+        result, _, _ = self.deploy(["--yes", "--only", "pink"], [[FakeBleFurby("aa")]])
+        self.assertIsInstance(result, deploy.DeployError)
+        self.assertIn("doesn't match show.json", str(result))
+
+
+class TestCheck(unittest.TestCase):
+    """porch.py --check plays each clip once and reads the Furby's replies to say what happened"""
+
+    def test_check(self):
+        import asyncio
+        import json
+        import sys
+        from unittest import mock
+
+        import porch
+        clip = lambda n: {"action": [75, 0, 0, n], "seconds": 0.0, "source": "x.wav"}  # noqa: E731
+        plan = {"gap": 0, "every": [30, 60], "scenes": [], "furbies": {
+            "pink": {"checksum": 1, "clips": {"a": clip(1), "b": clip(2), "c": clip(3), "d": clip(4)}},
+            "blue": {"checksum": 2, "clips": {"a": clip(1)}},
+            "green": {"checksum": 3, "clips": {"a": clip(1)}},
+        }}
+        pink = FakeBleFurby("aa", "pink", 1, actions={
+            (75, 0, 0, 1): ("play", 0.05), (75, 0, 0, 2): ("busy", 0), (75, 0, 0, 3): ("silent", 0),
+            (75, 0, 0, 4): ("play", 0.4),
+        })
+        blue = FakeBleFurby("bb", "blue", 99)  # flashed from an older build
+        temp_dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, temp_dir)
+        timings = os.path.join(temp_dir, "timings.json")
+        log = []
+        with mock.patch.dict(sys.modules, {"bleak": fake_bleak([[pink], [blue]])}), mock.patch("builtins.print"):
+            failures = asyncio.run(porch.check(plan, porch.find, log=log.append, timings_path=timings,
+                                               patience_s=1, long_tail_s=0.3, settle_s=0.05, pause_s=0))
+        self.assertEqual(failures, [
+            "pink.b: skipped", "pink.c: no reply",
+            "blue: its DLC doesn't match show.json; reflash it with: uv run deploy.py --only blue",
+            "green: not connected. Is it awake, nearby and free of FurBLE?",
+        ])
+        self.assertEqual(pink.triggers.count((75, 0, 0, 2)), 2)  # tried again once the busy sequence ended
+        with open(timings) as f:
+            measured = json.load(f)
+        self.assertTrue(0 < measured["pink"]["a"]["sequence_seconds"] < 0.3)
+        self.assertTrue(any("Waiting for blue, green" in line for line in log))  # blue turned up on a later scan
+        self.assertEqual(measured["pink"]["b"]["result"], "skipped")
+        self.assertIsNone(measured["pink"]["c"]["sequence_seconds"])
+        self.assertTrue(any(line.lstrip().startswith("d ") and "past its audio" in line for line in log), log)
+        self.assertFalse(any(line.lstrip().startswith("a ") and "past its audio" in line for line in log))
+        self.assertFalse(pink.is_connected)
+
+
 if __name__ == '__main__':
     unittest.main()

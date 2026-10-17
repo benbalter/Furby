@@ -19,6 +19,8 @@ USAGE:
     python porch.py --list                # list Furbies in range and their DLCs
     python porch.py --rehearse            # play every scene on this computer's speakers
     python porch.py --rehearse --scene 2  # just one (or --clip)
+    python porch.py --check               # play every clip once per Furby, report what
+                                          # played, and write timings.json beside show.json
 
 --rehearse needs no Furbies: it plays each clip's source audio here, with the
 show's timing, so you can tune lines and scenes before flashing anything. In
@@ -178,6 +180,108 @@ async def rehearse(plan, args):
             await asyncio.sleep(2)  # a short pause instead of the show's minute or so
 
 
+async def check_clip(furby, action, patience_s, attempts=2):
+    """Trigger one action and time its sequence; returns (result, seconds from 20:0c to 20:0e or None).
+
+    result is "played" (20:0c, audio and all), "skipped" (20:07: busy, so no
+    audio, even after waiting for the busy sequence to end and trying again)
+    or "no reply". This uses command() rather than Furby.play(), which retries
+    on 20:07 and so hides exactly what this measures.
+    """
+    reply_s = furbyshow.PLAY_REPLY_MS / 1000
+    for _ in range(attempts):
+        # Listen for the end before triggering: a short sequence can end before a later wait would start
+        ended = asyncio.create_task(
+            furby.command(None, expect=(furbyshow.SEQUENCE_ENDED, furbyshow.SEQUENCE_CANCELLED), timeout=patience_s)
+        )
+        await asyncio.sleep(0)
+        try:
+            reply = await furby.command(
+                furbyshow.trigger_command(action),
+                expect=(furbyshow.SEQUENCE_PLAYING, furbyshow.SPEECH_PLAYING),
+                timeout=reply_s,
+            )
+        except TimeoutError:
+            ended.cancel()
+            return "no reply", None
+        started = furbyshow.ticks_ms()
+        try:
+            await ended
+            seconds = furbyshow.ticks_diff(furbyshow.ticks_ms(), started) / 1000
+        except TimeoutError:
+            seconds = None
+        if reply[:2] == furbyshow.SEQUENCE_PLAYING:
+            return "played", seconds
+    return "skipped", None
+
+
+async def check(plan, find, log=print, timings_path=None, patience_s=furbyshow.PLAY_PATIENCE_MS / 1000,
+                long_tail_s=3, settle_s=3, pause_s=0.5, find_passes=3):  # fmt: skip
+    """Play every clip once on each Furby and report what the Furby says happened; returns the failures.
+
+    A sequence that runs long_tail_s or more past its clip is flagged but not
+    a failure: the next line on that Furby just waits for it (see Furby.play()).
+    """
+    show = furbyshow.Show(plan, find, log=lambda line: None if line.startswith("Connected") else log(line))
+    # Identical Furbies that see each other pair up and stop advertising, so give them a few scans to turn up
+    for attempt in range(find_passes):
+        await show.connect_missing()
+        missing = sorted(set(plan["furbies"]) - show.present())
+        if not missing:
+            break
+        if attempt < find_passes - 1:
+            log("Waiting for %s: wake it now (one at a time works best)." % ", ".join(missing))
+    failures, timings = [], {}
+    for name, spec in plan["furbies"].items():
+        furby = show.furbies.get(name)
+        if furby is None or not furby.connected():
+            failures.append("%s: not connected. Is it awake, nearby and free of FurBLE?" % name)
+            continue
+        log("\n%s (%s)" % (name, furby.address))
+        if spec.get("checksum") not in (None, furby.checksum):
+            failures.append("%s: its DLC doesn't match show.json; reflash it with: uv run deploy.py --only %s"
+                            % (name, name))  # fmt: skip
+            log("  checksum %s, show.json expects %#x: reflash it" % (furby.checksum and hex(furby.checksum),
+                                                                     spec["checksum"]))  # fmt: skip
+        else:
+            log("  checksum matches show.json")
+        try:  # let a sequence from connecting or the Furby's own antics finish first
+            await furby.command(None, expect=(furbyshow.SEQUENCE_ENDED, furbyshow.SEQUENCE_CANCELLED), timeout=settle_s)
+        except TimeoutError:
+            pass
+        log("  %-16s %-12s %-9s %6s %9s  %s" % ("clip", "action", "result", "audio", "sequence", ""))
+        timings[name] = {}
+        for clip, info in sorted(spec["clips"].items()):
+            result, seconds = await check_clip(furby, info["action"], patience_s)
+            note = ""
+            if result != "played":
+                failures.append("%s.%s: %s" % (name, clip, result))
+            elif seconds is None:
+                note = "no end signal within %.0f s" % patience_s
+            elif seconds - info["seconds"] >= long_tail_s:
+                note = "runs %.1f s past its audio" % (seconds - info["seconds"])
+            log("  %-16s %-12s %-9s %5.1fs %9s  %s" % (clip, ".".join(map(str, info["action"])), result,
+                info["seconds"], "-" if seconds is None else "%.1fs" % seconds, note))  # fmt: skip
+            timings[name][clip] = {"action": info["action"], "result": result, "audio_seconds": info["seconds"],
+                                   "sequence_seconds": seconds}  # fmt: skip
+            if result == "no reply":
+                await asyncio.sleep(info["seconds"])  # in case it's playing anyway
+            await asyncio.sleep(pause_s)
+    for furby in show.furbies.values():
+        await furby.disconnect()
+    if timings_path:
+        with open(timings_path, "w") as f:
+            json.dump(timings, f, indent=2)
+        log("\nWrote %s" % timings_path)
+    if failures:
+        log("\n%d problem%s:" % (len(failures), "" if len(failures) == 1 else "s"))
+        for failure in failures:
+            log("  " + failure)
+    else:
+        log("\nEvery clip played.")
+    return failures
+
+
 def greet_on_enter(show):
     """Press Enter to play a greeting, like the board's button."""
     loop = asyncio.get_running_loop()
@@ -205,6 +309,11 @@ async def main(args):
             "  uv run porch.py %s\n"
             "(--rehearse works without it)." % " ".join(sys.argv[1:])
         ) from None
+    if args.check:
+        timings = os.path.join(os.path.dirname(args.show), "timings.json")
+        if await check(plan, find, timings_path=timings):
+            raise SystemExit(1)
+        return
     show = furbyshow.Show(plan, find)
     if args.list:
         for furby in await find([]):
@@ -229,4 +338,5 @@ if __name__ == "__main__":
     parser.add_argument("--clip", help='play one clip once, e.g. "pink.cackle", and exit')
     parser.add_argument("--list", action="store_true", help="list Furbies in range and exit")
     parser.add_argument("--rehearse", action="store_true", help="play scenes on this computer, no Furbies needed")
+    parser.add_argument("--check", action="store_true", help="play every clip once per Furby and report what played")
     asyncio.run(main(parser.parse_args()))

@@ -120,8 +120,9 @@ Two Furby Connects close together start singing to each other, and while they do
    uv run porch.py
    ```
 
-2. Put the batteries in the pink Furby and wait for Terminal to say `Connected to pink`.
-3. Put the batteries in the blue Furby and wait for `Connected to blue`.
+2. Do what Terminal says. It asks for one Furby at a time, in `show.toml`'s order: `Put batteries in (or wake) only the pink Furby`, then, once pink connects, `Pink is connected. Now power up blue.`, and finally `All Furbies connected`.
+
+If a Furby drops during the show, Terminal says so (`Blue dropped. Pink is still connected; wake blue again.`), and if nobody turns up for about a minute it suggests the Furbies are singing together.
 
 The show keeps both Furbies awake and plays a random scene every 20 to 45 seconds. Press Enter when trick-or-treaters walk up to play a greeting. Press Ctrl-C to stop. Keep the computer close to the Furbies, since Bluetooth's range is short.
 
@@ -132,7 +133,7 @@ To run the show without a computer on the night, an ESP32 board can do the same 
 - **`Found 2 Furbies in range` (or 0) when flashing.** `flash.py` flashes only when exactly one Furby is awake. Take the other one's batteries out, or pass `--address` with the address `uv run flash.py --list` shows. With 0, check the Furby is awake and close, and that FurBLE isn't open in a browser tab.
 - **Flashing fails or times out.** Hold the Furby still, close to the computer, and try again with `--packet-delay 30` to send more slowly. If it still fails, reset the Furby (hold it upside down, hold its tongue, and pull its tail until the eyes go dark) and try again. The [browser route](#flashing-a-dlc) works too.
 - **`Two Furbies have pink.dlc; flash the right DLC to one of them`.** Both got the same DLC. Reflash one of them with the other DLC, with only that one awake.
-- **`Waiting for Furbies` and nothing connects.** The Furbies are probably singing to each other. Take both sets of batteries out, then put them back one Furby at a time, waiting for `Connected to …` before the next. On a Mac, also check System Settings → Privacy & Security → Bluetooth allows Terminal.
+- **`If they're singing together…`, or nothing connects.** The Furbies are probably singing to each other. Take both sets of batteries out, then put them back one Furby at a time, in the order the show asks for, waiting for `Connected to …` before the next. On a Mac, also check System Settings → Privacy & Security → Bluetooth allows Terminal.
 - **`pink.dlc on the Furby doesn't match this show; reflash it`.** You rebuilt after flashing. Flash both Furbies again (step 5).
 - **A Furby moves its eyes but makes no sound.** It was still finishing its last movement when its line came, and a busy Furby plays a line without the audio. The show waits and tries again on its own, so this should be rare; if it gives up you'll see `skipped: pink stayed busy with its last sequence`.
 - **The build stops with `pink is missing clips`.** Make those files, or build with `--skip-missing`.
@@ -459,9 +460,19 @@ With no computer on the night, an ESP32-S3 board running MicroPython on a USB po
 
 1. Flash [MicroPython](https://micropython.org/download/ESP32_GENERIC_S3/) to the board (for the FireBeetle's 8 MB of octal PSRAM, the `SPIRAM_OCT` build).
 2. Build the show (`uv run halloween.py`), then plug the board in over USB and run `firmware/deploy.sh`. It installs [aioble](https://github.com/micropython/micropython-lib/tree/master/micropython/bluetooth/aioble) and copies the show over.
-3. Power the board up first, then the Furbies one at a time, as when running from a computer.
+3. Power the board up first, then the Furbies one at a time, following its LED (below).
 
-The board starts the show on power-up, keeps both Furbies awake, plays a random scene every 20 to 45 seconds, and plays a greeting right away when you press its button. To greet trick-or-treaters as they walk up, wire a PIR motion sensor (such as an HC-SR501) to a free GPIO and set `PIR_PIN` at the top of [`firmware/main.py`](firmware/main.py). Its LED stays on during a scene and blinks while a Furby is missing. A watchdog reboots it if the show ever hangs. Hold the button while plugging it in to skip the show.
+The board starts the show on power-up, keeps both Furbies awake, plays a random scene every 20 to 45 seconds, and plays a greeting right away when you press its button. To greet trick-or-treaters as they walk up, wire a PIR motion sensor (such as an HC-SR501) to a free GPIO and set `PIR_PIN` at the top of [`firmware/main.py`](firmware/main.py). Its LED says which Furby to power up next, and the board prints the same messages as `porch.py` over USB:
+
+| LED | Means |
+| --- | --- |
+| 1 blink, pause | Power up the first Furby in `show.toml` (pink) |
+| 2 blinks, pause | The first is connected: power up the second (blue) |
+| Fast flicker | Nobody has turned up for about a minute. If they're singing together, take the batteries out of one and power them up one at a time |
+| Solid | A scene is playing |
+| Off | Every Furby is connected, between scenes |
+
+A Furby that drops mid-show gets the same blinks again. A watchdog reboots it if the show ever hangs. Hold the button while plugging it in to skip the show.
 
 ### Antenna lights
 

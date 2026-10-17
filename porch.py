@@ -9,7 +9,9 @@ the same show from an ESP32 with no computer. Both use the show engine in
 furbyshow.py, so they behave the same. It finds each Furby, works out which
 one it is from the name of its active DLC (pink.dlc → pink), keeps the
 connection alive so the Furby stays awake, and every so often plays a random
-scene from show.json, which halloween.py writes.
+scene from show.json, which halloween.py writes. Two Furbies woken together
+sing to each other and can't be found, so it says which one to power up
+next, one at a time (see furbyshow.Show.guide).
 
 USAGE:
     python porch.py                       # run the show (build/halloween/show.json);

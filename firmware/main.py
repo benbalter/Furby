@@ -7,8 +7,21 @@ The same show engine as porch.py (furbyshow.py), over aioble, MicroPython's
 Bluetooth library. On power-up it finds both Furbies, tells them apart by
 their active DLC, keeps them awake and plays a scene every so often. The
 board's button, or a motion sensor if you wire one (PIR_PIN below), plays a
-greeting right away, and its LED lights during scenes
-(blinking while it waits for a Furby). Wi-Fi stays off.
+greeting right away. Wi-Fi stays off.
+
+Two Furbies woken together sing to each other and can't be found, so the
+show asks for them one at a time, and the LED says which (see led_pattern):
+
+    1 blink, pause      power up the first Furby in show.json (pink)
+    2 blinks, pause     it's connected: now power up the second (blue)
+    fast flicker        nobody has turned up for a while: if they're singing
+                        together, take the batteries out of one and power
+                        them up one at a time
+    solid               a scene is playing
+    off                 every Furby is connected, between scenes
+
+The same goes for a Furby that drops mid-show. The show also prints what to
+do over USB serial (mpremote).
 
 Safe boot: hold the button while plugging the board in to skip the show and
 stay at the REPL, e.g. to copy new files. Otherwise a watchdog reboots the
@@ -34,6 +47,7 @@ LED_PIN = 21  # and its onboard LED
 # up. Wire its output to a free GPIO and put the pin number here; None leaves
 # it off. The sensor drives the pin high on motion, so it needs no pull-up.
 PIR_PIN = None
+BLINK_MS = 100  # the status LED's pattern steps (see led_pattern)
 WATCHDOG_MS = 120_000  # reboot if not fed for this long
 STALL_MS = 300_000  # stop feeding the watchdog if the show makes no progress for this long
 SERVICE = bluetooth.UUID(furbyshow.GP_SERVICE)
@@ -112,19 +126,45 @@ async def watchdog(show, wdt):
     print("Show stalled; the watchdog will reboot the board")
 
 
+SOLID = (1,)
+OFF = (0,)
+FLICKER = (1, 0)
+
+
+def led_pattern(show):
+    """The status LED's levels, one per BLINK_MS, repeated (see the table at the top).
+
+    N blinks then a pause means "power up Furby number N" (in show.json order).
+    """
+    if show.playing:
+        return SOLID
+    n = show.waiting_index()
+    if n is None:
+        return OFF
+    if show.stuck():
+        return FLICKER
+    return (1, 1, 0, 0) * (n + 1) + (0,) * 8
+
+
 async def status_light(show, led):
-    """Solid during a scene, blinking while a Furby is missing, off otherwise."""
-    blink = 0
+    pattern, step = None, 0
     while True:
-        blink ^= 1
-        missing = show.present() != set(show.plan["furbies"])
-        led.value(1 if show.playing else blink if missing else 0)
-        await asyncio.sleep(0.5)
+        now = led_pattern(show)
+        if now != pattern:  # start a new pattern from its first blink, so the count reads right
+            pattern, step = now, 0
+        led.value(pattern[step % len(pattern)])
+        step += 1
+        await asyncio.sleep(BLINK_MS / 1000)
 
 
 async def main(plan_path="show.json"):
     with open(plan_path) as f:
-        show = furbyshow.Show(json.load(f), find, wake=asyncio.ThreadSafeFlag())
+        text = f.read()
+    plan = json.loads(text)
+    # MicroPython's dicts forget show.json's order, which says who to power up first
+    order = furbyshow.plan_order(text, plan["furbies"])
+    del text
+    show = furbyshow.Show(plan, find, wake=asyncio.ThreadSafeFlag(), order=order)
     button = machine.Pin(BUTTON_PIN, machine.Pin.IN, machine.Pin.PULL_UP)
     # ThreadSafeFlag is safe to set from an interrupt and wakes the show at once.
     button.irq(lambda _: show.trigger(), machine.Pin.IRQ_FALLING)

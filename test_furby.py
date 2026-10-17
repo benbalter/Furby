@@ -2107,5 +2107,62 @@ class TestCheck(unittest.TestCase):
         self.assertFalse(pink.is_connected)
 
 
+class TestRealShow(unittest.TestCase):
+    """halloween/show.toml, built with placeholder clips, plays every line on virtual Furbies"""
+
+    def test_every_line_plays(self):
+        """No scene is dropped, and no line goes silent or is skipped, with typical or worst-case movements"""
+        import json
+        import sys
+        from unittest import mock
+
+        import emulate
+        import halloween
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "tools"))
+        import ci_show
+        if not os.path.exists("./dlc/dlc2/tu003410.dlc"):
+            self.skipTest("Test DLC file not found")
+        temp_dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, temp_dir)
+        with mock.patch("builtins.print"):
+            scenes = halloween.load_show()["scenes"]
+            with open(ci_show.main(["-o", temp_dir])) as f:
+                plan = json.load(f)
+        self.assertEqual(len(plan["scenes"]), len(scenes))  # optional clips get placeholders too
+        dlcs = {name: os.path.join(temp_dir, name + ".dlc") for name in plan["furbies"]}
+        for worst in (False, True):
+            report = emulate.simulate(plan, dlcs, durations=emulate.load_durations(None, worst))
+            problems = [(i, r["silent"], r["skipped"]) for i, r in enumerate(report) if r["silent"] or r["skipped"]]
+            self.assertEqual(problems, [], "worst-case movements" if worst else "typical movements")
+
+
+class TestScripts(unittest.TestCase):
+    """Every command-line script at least starts, including ones no test imports"""
+
+    def test_help(self):
+        """--help exits 0 for each script with an argparse CLI"""
+        import glob
+        import subprocess
+        import sys
+
+        root = os.path.dirname(os.path.abspath(__file__))
+        scripts = []
+        # Just the repo's script folders, so local untracked files elsewhere don't change the result
+        for path in sorted(p for d in ("", "audioutils", "tools") for p in glob.glob(os.path.join(root, d, "*.py"))):
+            with open(path, encoding="utf-8") as f:
+                source = f.read()
+            # Scripts without argparse (demo.py, firmware/main.py...) do real work when run, so skip them
+            if "argparse" in source and "__main__" in source and not path.endswith("test_furby.py"):
+                scripts.append(path)
+        self.assertGreater(len(scripts), 10, scripts)
+        runs = {p: subprocess.Popen([sys.executable, p, "--help"], cwd=root, stdout=subprocess.PIPE,
+                                    stderr=subprocess.PIPE, text=True) for p in scripts}
+        for path, proc in runs.items():
+            out, err = proc.communicate(timeout=60)
+            with self.subTest(script=os.path.relpath(path, root)):
+                self.assertEqual(proc.returncode, 0, err)
+                self.assertIn("usage:", out)
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -5,16 +5,29 @@ on:
     branches: [ master ]
   pull_request:
     branches: [ master ]
+  workflow_dispatch:
 
+# Nothing here writes to the repo
+permissions:
+  contents: read
+
+# A new push to a PR cancels its older runs; runs on master always finish, so
+# each commit there keeps its result
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# setup-uv caches uv's downloads on its own (enable-cache defaults to auto)
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     strategy:
       matrix:
         python-version: ['3.11', '3.12', '3.13']
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
 
     - uses: astral-sh/setup-uv@v10.3.0
       with:
@@ -27,8 +40,9 @@ jobs:
   # MicroPython's Unix port, so these tests run for real here instead of skipping.
   micropython:
     runs-on: macos-latest
+    timeout-minutes: 10
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
     - uses: astral-sh/setup-uv@v10.3.0
       with:
         python-version: '3.12'
@@ -41,21 +55,57 @@ jobs:
         uvx mpy-cross -o /tmp/furbyshow.mpy furbyshow.py
         uvx mpy-cross -o /tmp/main.mpy firmware/main.py
 
+  # The real show.toml with placeholder tones for its (gitignored) clips, run
+  # on virtual Furbies. TestRealShow already fails the build on a silent or
+  # skipped line; this prints the scene-by-scene report and the eye check.
+  show:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+    - uses: actions/checkout@v7
+    - uses: astral-sh/setup-uv@v10.3.0
+    - name: Build the show with placeholder clips
+      run: uv run --locked python tools/ci_show.py
+    - name: Play every scene on virtual Furbies
+      run: uv run --locked python emulate.py build/ci-show/show.json
+    - name: Play every scene with the slowest measured movements
+      run: uv run --locked python emulate.py --worst build/ci-show/show.json
+    # Informational for now: eyecheck's rules are still being settled against
+    # what real Furbies show, so a failure is flagged as a warning instead of
+    # failing the build. Make it gate once its rules and show.toml agree.
+    - name: Check the eyes the way a Furby composes them
+      run: |
+        if ! out=$(uv run --locked python eyecheck.py build/ci-show/pink.dlc build/ci-show/blue.dlc 2>&1); then
+          echo "::warning title=eyecheck::The show's eyes may not display on a Furby; see this step's log"
+        fi
+        echo "$out"
+        { echo '### eyecheck'; echo '```'; echo "$out"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
   lint:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
     - uses: astral-sh/setup-uv@v10.3.0
     - run: uv run --locked ruff check .
     - run: uv run --locked ruff format --check .
+    # Workflow files, including the shell in their run: steps (via shellcheck)
+    - run: uvx --from actionlint-py actionlint
+    # Relative links and #anchors in the Markdown docs; --offline skips
+    # external URLs, so a flaky site can't fail the build
+    - uses: lycheeverse/lychee-action@v2
+      with:
+        args: --offline --include-fragments --no-progress './**/*.md'
+        jobSummary: false
 
   # Generated audio and DLCs belong in build/, which is gitignored. Cloned
   # Furby voices and DLCs built from the stock one must never be committed, so
   # fail if any audio or DLC shows up beyond the files that came with the repo.
   no-generated-files:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
     - name: Check for committed audio, DLCs and build output
       run: |
         allowed='^(dlc/dlc2/tu003410\.dlc|audio/new_audio/(darkside_wav\.a18|imperial_march-16000_wav\.a18|toccata_in_d_minor_16khz\.wav))$'

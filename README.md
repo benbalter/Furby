@@ -331,6 +331,23 @@ You need two Furby Connects with their DLCs flashed, and something to run the sh
    - **Rehearse first, with no Furbies:** `python porch.py --rehearse` plays every scene through your computer's speakers with the show's timing (`--scene 2` or `--clip pink.boo` for just one), so you can tune lines and scenes before flashing anything.
    - **From an ESP32, with no computer:** flash [MicroPython](https://micropython.org/download/ESP32_GENERIC_S3/) to the board (for the FireBeetle's 8 MB of octal PSRAM, the `SPIRAM_OCT` build), then run `firmware/deploy.sh` (needs [uv](https://docs.astral.sh/uv/)). It installs [aioble](https://github.com/micropython/micropython-lib/tree/master/micropython/bluetooth/aioble) and copies the show over. The board starts the show on power-up, keeps both Furbies awake, plays a random scene every 20 to 45 seconds, and plays a greeting right away when you press its button. To greet trick-or-treaters as they walk up, wire a PIR motion sensor (such as an HC-SR501) to a free GPIO and set `PIR_PIN` at the top of [`firmware/main.py`](firmware/main.py). Its LED stays on during a scene and blinks while a Furby is missing. A watchdog reboots it if the show ever hangs. Hold the button while plugging it in to skip the show. After changing the show, reflash both Furbies and run `deploy.sh` again; the show warns if a Furby's DLC doesn't match.
 
+### Antenna lights
+
+While a Furby speaks, its antenna plays a light that matches the clip's eyes and moves with the sound. `halloween.py` measures each clip's loudness ten times a second and stores it in `show.json`, and the show engine updates the antenna from it while the line plays, so a cackle flickers and a scream flashes.
+
+| Eyes | Light |
+| --- | --- |
+| demon | red pulse, brighter on loud moments |
+| bloodshot | deep red that follows the voice |
+| storm | dim blue with white lightning flashes, more of them when loud |
+| pumpkin | orange candle flicker |
+| ghost | pale, slowly breathing wisp |
+| hypno | cycles through the colour wheel |
+
+Change it in [`halloween/show.toml`](halloween/show.toml) with `light` on a clip or a whole Furby: an effect (`off`, `steady`, `voice`, `candle`, `pulse`, `wisp`, `lightning`, `cycle`), an eye theme's name (`light = "ghost"`), or a table such as `light = { effect = "pulse", color = [0, 255, 0] }`. A Furby-wide `light = { color = [255, 0, 0] }` keeps one colour for all its lines, which makes it easier to tell who's talking. A Furby's `antenna` colour is only a fallback now, for lights with no colour of their own. In `[show]`, `light_hz` (default 10, at most 15) sets how often the antenna updates, and `idle_glow = 0.15` keeps each Furby in a scene glowing dimly while the other one speaks (off by default).
+
+`python porch.py --rehearse` draws each antenna as a coloured block in the terminal while the clips play, so you can tune lights without the Furbies. On the Furbies themselves, the light runs alongside each line and never delays a trigger, and the antenna goes dark when the line ends or a scene is cut short. Not yet checked on a real Furby: whether the antenna dims smoothly or only switches colour, and whether 10 updates a second interferes with playback. If lines stutter, lower `light_hz`; if dimmed colours look wrong, use `light = "steady"`.
+
 ## License
 
 Files marked `SPDX-License-Identifier: MIT` (the Halloween show, the firmware, and the audio tools in `audioutils/` that carry that header) are available under the [MIT License](LICENSES/MIT.txt). The rest of the repository comes from [Context's original project](https://github.com/ctxis/Furby), which doesn't state a license, so those files stay under Context's terms. Hasbro owns the Furby name and the stock DLC, audio and artwork included here.

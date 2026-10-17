@@ -383,10 +383,56 @@ class TestHalloween(unittest.TestCase):
             info = plan["furbies"]["pink"]["clips"][name]
             self.assertEqual(info["eyes"], theme)
             self.assertEqual(set(spooky_eyes.eye_words(pink, tuple(info["action"]))), {word})
+        # Each clip's antenna plays its eyes' light, with an envelope a digit per 100 ms
+        self.assertEqual(plan["light_hz"], 10)
+        a = plan["furbies"]["pink"]["clips"]["a"]
+        self.assertEqual(a["light"], {"effect": "pulse", "color": [255, 0, 0]})
+        self.assertAlmostEqual(len(a["envelope"]), a["seconds"] * 10, delta=1)
+        self.assertEqual(plan["furbies"]["pink"]["clips"]["b"]["light"]["effect"], "voice")  # bloodshot
+        self.assertEqual(plan["furbies"]["blue"]["clips"]["c"]["light"]["effect"], "candle")  # pumpkin
+        self.assertNotIn("idle", plan["furbies"]["pink"])  # idle_glow is off unless asked for
         # The checksum the Furby will report for each DLC
         import zlib
         with open(os.path.join(self.temp_dir, "pink.dlc"), "rb") as f:
             self.assertEqual(plan["furbies"]["pink"]["checksum"], zlib.adler32(f.read()))
+
+    def test_envelope(self):
+        """A clip's envelope is one loudness digit per 100 ms of what the Furby plays"""
+        import halloween
+        for path in ("./audio/new_audio/darkside_wav.a18", "./audio/new_audio/imperial_march-16000_wav.a18"):
+            env = halloween.envelope(path)
+            seconds = (os.path.getsize(path) - 6) / halloween.A18_BYTES_PER_SECOND
+            self.assertAlmostEqual(len(env), seconds * 10, delta=1)
+            self.assertTrue(env.isdigit())
+            self.assertIn("9", env)  # its loudest moment
+        self.assertTrue(halloween.envelope("./audio/new_audio/darkside_wav.a18").startswith("0000"))  # it opens quietly
+        # Something the codec can't read just loses its envelope (the light glows at full volume)
+        from unittest import mock
+        bad = os.path.join(self.temp_dir, "bad.a18")
+        with open(bad, "wb") as f:
+            f.write(b"\x00" * 64)
+        with mock.patch("builtins.print"):
+            self.assertIsNone(halloween.envelope(bad))
+
+    def test_clip_lights(self):
+        """A clip's light comes from its eyes, then the Furby's light, then its own"""
+        import halloween
+        self.assertEqual(halloween.clip_light("pink", {}, "a", "storm", {}), {"effect": "lightning", "color": [60, 80, 255]})
+        # A Furby-wide color keeps each Furby recognizable, while the effect still matches the eyes
+        furby = {"light": {"color": [0, 255, 0]}, "antenna": [1, 2, 3]}
+        self.assertEqual(halloween.clip_light("pink", furby, "a", "pumpkin", {}), {"effect": "candle", "color": [0, 255, 0]})
+        # A clip names an effect, an eye theme's light, or a table
+        self.assertEqual(halloween.clip_light("pink", {}, "a", "demon", {"light": "voice"})["effect"], "voice")
+        self.assertEqual(halloween.clip_light("pink", {}, "a", "demon", {"light": "ghost"}), halloween.THEME_LIGHTS["ghost"])
+        self.assertEqual(halloween.clip_light("pink", {}, "a", "demon", {"light": {"color": [9, 9, 9]}}), {"effect": "pulse", "color": [9, 9, 9]})
+        self.assertIsNone(halloween.clip_light("pink", {}, "a", "demon", {"light": "off"}))
+        # No eye theme light: the antenna color, following the voice; with none, no light
+        self.assertEqual(halloween.clip_light("pink", {"antenna": [1, 2, 3]}, "a", None, {}), {"effect": "voice", "color": [1, 2, 3]})
+        self.assertIsNone(halloween.clip_light("pink", {}, "a", None, {}))
+        with self.assertRaises(SystemExit):
+            halloween.clip_light("pink", {}, "a", "demon", {"light": "disco"})
+        import spooky_eyes
+        self.assertEqual(set(halloween.THEME_LIGHTS), set(spooky_eyes.THEMES))  # every eye theme has a light
 
     def test_clip_eyes(self):
         """Clips take turns through the eyes list in name order, unless they pick their own"""
@@ -488,6 +534,112 @@ class TestHalloween(unittest.TestCase):
         plan["furbies"]["pink"]["clips"]["a"]["before"] = 1.0
         asyncio.run(show.play_step("pink.a"))
         self.assertEqual(events[:2], [("sleep", 1.0), ("pink", 0x14)])
+
+    def test_light_effects(self):
+        """Each antenna effect gives valid colours, follows the sound, and repeats exactly"""
+        import furbyshow
+        red = [255, 0, 0]
+        for effect in furbyshow.EFFECTS + ("from-the-future",):
+            for level in (0, 0.5, 1):
+                for t in range(0, 3000, 70):
+                    rgb = furbyshow.light_rgb({"effect": effect, "color": red}, t, level, seed=3)
+                    self.assertEqual(len(rgb), 3)
+                    self.assertTrue(all(isinstance(c, int) and 0 <= c <= 255 for c in rgb), (effect, rgb))
+                    furbyshow.antenna_command(rgb)  # a byte each, or this raises
+        light = lambda effect: {"effect": effect, "color": red}  # noqa: E731
+        frames = lambda effect, level, seed=0: [furbyshow.light_rgb(light(effect), t, level, seed) for t in range(0, 10000, 100)]  # noqa: E731
+        self.assertEqual(set(frames("steady", 0)), {(255, 0, 0)})
+        self.assertEqual(set(frames("off", 1)), {(0, 0, 0)})
+        self.assertEqual(set(frames("from-the-future", 0)), {(255, 0, 0)})  # an unknown effect glows steady
+        self.assertLess(frames("voice", 0)[0][0], frames("voice", 1)[0][0])  # louder is brighter
+        self.assertGreater(len(set(frames("candle", 0.5))), 5)  # it flickers
+        self.assertEqual(frames("candle", 0.5), frames("candle", 0.5))  # the same way every time
+        self.assertNotEqual(frames("candle", 0.5, seed=1), frames("candle", 0.5, seed=2))  # but not in step with the other Furby
+        flashes = lambda level: frames("lightning", level).count((255, 255, 255))  # noqa: E731
+        self.assertGreater(flashes(0), 0)
+        self.assertGreater(flashes(1), 3 * flashes(0))  # far more flashes in a scream
+        self.assertGreater(len(set(frames("cycle", 1))), 20)  # round the wheel
+        self.assertEqual(furbyshow.hue_rgb(0), (255, 0, 0))
+        self.assertEqual(furbyshow.hue_rgb(1 / 3), (0, 255, 0))
+        # Envelopes: a digit per 100 ms; none means full volume, past the end silence
+        self.assertEqual(furbyshow.envelope_level(None, 500), 1.0)
+        self.assertEqual(furbyshow.envelope_level("09", 50), 0.0)
+        self.assertEqual(furbyshow.envelope_level("09", 150), 1.0)
+        self.assertEqual(furbyshow.envelope_level("09", 250), 0.0)
+        # A show.json from before lights: the antenna color glows steady; "off" means none
+        self.assertEqual(furbyshow.clip_light({"antenna": red}, {}), {"effect": "steady", "color": red})
+        self.assertIsNone(furbyshow.clip_light({}, {}))
+        self.assertIsNone(furbyshow.clip_light({"antenna": red}, {"light": {"effect": "off"}}))
+
+    def test_light_follows_line(self):
+        """The antenna animates during each line, at most light_hz, and rests when the line or scene ends"""
+        import asyncio
+        import time
+
+        import furbyshow
+        sent = []  # (name, seconds since start, bytes)
+
+        class F(furbyshow.Furby):
+            def connected(self):
+                return True
+
+            async def _write(self, data):
+                sent.append((self.name, time.monotonic() - start, bytes(data)))
+                if data[0] == 0x13:
+                    self.on_response(furbyshow.SEQUENCE_PLAYING)
+
+        plan = {
+            "gap": 0, "every": [1, 2], "scenes": [], "light_hz": 12.5,  # a fraction is rounded down, not fatal
+            "furbies": {
+                "pink": {"idle": [20, 0, 0], "clips": {"a": {
+                    "action": [75, 0, 0, 2], "seconds": 0.6,
+                    "light": {"effect": "voice", "color": [255, 0, 0]}, "envelope": "000999"}}},
+                "blue": {"clips": {"a": {
+                    "action": [75, 0, 4, 4], "seconds": 1.0,
+                    "light": {"effect": "cycle", "color": [255, 0, 255]}, "envelope": "9999999999"}}},
+            },
+        }
+        show = furbyshow.Show(plan, None, log=lambda *_: None)
+        for name in ("pink", "blue"):
+            show.furbies[name] = F(name)
+            show.furbies[name].name = name
+        start = time.monotonic()
+        asyncio.run(show.play_step("pink.a + blue.a"))
+        lights = lambda name: [(t, d[1:]) for n, t, d in sent if n == name and d[0] == 0x14]  # noqa: E731
+        # Lit before the triggers, so a duet's two lines start together
+        self.assertEqual([d[0] for _, _, d in sent[:4]], [0x14, 0x14, 0x13, 0x13])
+        # Pink follows its envelope: dim while quiet, bright while loud, then off at its own
+        # clip's end rather than the duet's
+        pink = lights("pink")
+        self.assertEqual([c for _, c in pink], [bytes(furbyshow.scale([255, 0, 0], 0.15)), bytes([255, 0, 0]), bytes(3)])
+        blue = lights("blue")
+        self.assertLess(pink[-1][0], blue[-1][0] - 0.2)
+        # Blue changes every frame, but never faster than light_hz (12), and ends dark
+        self.assertGreater(len(blue), 5)
+        gaps = [blue[i + 1][0] - blue[i][0] for i in range(len(blue) - 2)]  # the off at the end comes when it comes
+        self.assertGreater(min(gaps), 1 / 12 - 0.015)
+        self.assertEqual(blue[-1][1], bytes(3))
+        self.assertTrue(all(d[0] != 0x14 for n, t, d in sent if t > blue[-1][0]))  # nothing after
+        # In a scene, a Furby with an idle glow rests at it between lines, and goes dark at the end
+        sent.clear()
+        asyncio.run(show.play_scene(["pink.a", "blue.a"]))
+        pink = [c for _, c in lights("pink")]
+        self.assertEqual(pink[0], bytes([20, 0, 0]))  # from the start of the scene
+        self.assertEqual(pink[-2:], [bytes([20, 0, 0]), bytes(3)])  # through blue's line, then dark
+        # An interrupted line still stops its light and turns the antenna off
+        sent.clear()
+
+        async def broken(seconds):
+            await asyncio.sleep(0.15)
+            raise OSError("disconnected")
+
+        show.sleep = broken
+        start = time.monotonic()
+        with self.assertRaises(OSError):
+            asyncio.run(show.play_step("blue.a"))
+        blue = lights("blue")
+        self.assertEqual(blue[-1][1], bytes(3))
+        self.assertLess(blue[-1][0], 0.3)
 
     def test_play_waits_while_busy(self):
         """A Furby still running its last sequence answers 20:07; play() waits for 20:0e and triggers again"""
@@ -727,6 +879,22 @@ async def main():
     assert show.furbies["pink"].checksum == 0xCAFD6934
 asyncio.run(main())
 assert sent[-1] == bytes([0x13, 0, 75, 0, 0, 2]), sent
+# Every effect makes bytes the antenna command takes
+for effect in furbyshow.EFFECTS:
+    for t in range(0, 2000, 90):
+        furbyshow.antenna_command(furbyshow.light_rgb({"effect": effect, "color": [255, 80, 0]}, t, t / 2000, 5))
+# A line's light runs in real time alongside it, then goes dark
+plan["light_hz"] = 15
+plan["furbies"]["pink"]["clips"]["a"].update(seconds=0.3, envelope="294", light={"effect": "candle", "color": [255, 80, 0]})
+async def lit():
+    show = furbyshow.Show(plan, find, log=lambda *a: None)
+    await show.connect_missing()
+    sent.clear()
+    await show.play_step("pink.a")
+asyncio.run(lit())
+lights = [d for d in sent if d[0] == 0x14]
+assert len(lights) > 2, sent
+assert lights[-1] == bytes([0x14, 0, 0, 0]), lights
 assert furbyshow.slot_name(b"\\x73\\x0d____PINK") == "PINK"
 print("ok")
 """
@@ -835,6 +1003,30 @@ class TestRehearsal(unittest.TestCase):
             asyncio.run(porch.rehearse(plan, argparse.Namespace(clip=None, scene=0)))
         # The same action plays each Furby's own clip
         self.assertEqual(played, ["a.wav", "b.wav"])
+
+    def test_rehearse_draws_antennas(self):
+        """In a terminal, every lit antenna is a coloured block on one line, redrawn in place"""
+        import io
+        from unittest import mock
+
+        import porch
+
+        out = io.StringIO()
+        out.isatty = lambda: True
+        with mock.patch("sys.stdout", out):
+            porch.show_antenna("pink", (255, 0, 0))
+            porch.show_antenna("blue", (0, 0, 255))
+            self.assertIn("\033[48;2;255;0;0m", out.getvalue().split("\r")[-1])
+            self.assertIn("\033[48;2;0;0;255m", out.getvalue().split("\r")[-1])
+            porch.show_antenna("pink", (0, 0, 0))
+            porch.show_antenna("blue", (0, 0, 0))
+        self.assertEqual(out.getvalue().split("\r")[-1], "\033[K  ")  # all dark: the line is cleared
+        # Piped output gets no per-frame flood
+        out = io.StringIO()
+        with mock.patch("sys.stdout", out):
+            porch.show_antenna("pink", (255, 0, 0))
+        self.assertEqual(out.getvalue(), "")
+        porch.show_antenna("pink", (0, 0, 0))
 
 
 class TestFirmware(unittest.TestCase):

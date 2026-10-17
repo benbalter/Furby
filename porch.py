@@ -21,7 +21,8 @@ USAGE:
     python porch.py --rehearse --scene 2  # just one (or --clip)
 
 --rehearse needs no Furbies: it plays each clip's source audio here, with the
-show's timing, so you can tune lines and scenes before flashing anything.
+show's timing, so you can tune lines and scenes before flashing anything. In
+a terminal it also draws each antenna's light as a coloured block, live.
 Running the show needs bleak, which `uv run porch.py` installs.
 """
 
@@ -103,8 +104,37 @@ class RehearsalFurby(furbyshow.Furby):
         if data[0] == 0x13:
             play_audio(self.sources[tuple(data[2:6])])
             self.on_response(furbyshow.SEQUENCE_PLAYING)  # answer like a Furby, so play() doesn't wait
-        elif data[0] == 0x14 and any(data[1:4]):
-            print("  %s antenna glows rgb%s" % (self, tuple(data[1:4])))
+        elif data[0] == 0x14:
+            show_antenna(self.name, tuple(data[1:4]))
+
+
+_antennas = {}  # name → colour, for the rehearsal's light line
+
+
+def show_antenna(name, rgb):
+    """Draw every lit antenna as a coloured block on one line, redrawn in place.
+
+    The light changes up to 15 times a second, so this only draws in a
+    terminal that can redraw a line (and show 24-bit colour); piped output
+    gets nothing rather than a flood.
+    """
+    if any(rgb):
+        _antennas[name] = rgb
+    else:
+        _antennas.pop(name, None)
+    if not sys.stdout.isatty():
+        return
+    blocks = ["%s \033[48;2;%d;%d;%dm      \033[0m %3d,%3d,%3d" % ((n,) + c + c) for n, c in sorted(_antennas.items())]
+    sys.stdout.write("\r\033[K  " + "   ".join(blocks))
+    sys.stdout.flush()
+
+
+def rehearsal_log(line):
+    if line.startswith("Connected"):
+        return
+    if sys.stdout.isatty():
+        sys.stdout.write("\r\033[K")  # clear the light line first
+    print(line)
 
 
 def play_audio(path):
@@ -136,7 +166,7 @@ async def rehearse(plan, args):
     async def find(known):
         return [f for f in furbies if f.address not in known]
 
-    show = furbyshow.Show(plan, find, log=lambda line: None if line.startswith("Connected") else print(line))
+    show = furbyshow.Show(plan, find, log=rehearsal_log)
     await show.connect_missing()
     if args.clip:
         await show.play_step(args.clip)

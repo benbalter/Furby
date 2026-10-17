@@ -31,7 +31,7 @@ You need:
 
 - Two Furby Connects, with fresh batteries. They have no on/off switch, so taking the batteries out is how you turn one off.
 - A computer with Bluetooth. These steps are written for a Mac; Windows and Linux should work too (install uv and ffmpeg their own way), but haven't been tried.
-- A way to record 19 short voice lines (or a Mac's built-in voices, for a quick start).
+- A way to record 19 short voice lines (or your computer's built-in voices, for a quick start).
 
 ### 1. Install the tools
 
@@ -53,17 +53,16 @@ Every command below runs from this `Furby` folder.
 
 A fresh copy of the repository has almost none of the show's audio: the clips live in `build/`, which git ignores. Only the Toccata opening comes with it. Each clip's file name is in [`halloween/show.toml`](halloween/show.toml), the file that describes the whole show.
 
-**Voice lines (needed).** The show's 19 lines go in `build/cloned/`, such as `build/cloned/pink_boo.wav`. The words for each are in the comment next to it in `show.toml` (`boo = "build/cloned/pink_boo.wav"  # "Boo! Kah scare you?"`). Without them, the show builds with no scenes, or just one if you have the sound effects. Three ways to make them:
+**Voice lines (needed).** The show's 19 lines go in `build/cloned/`, such as `build/cloned/pink_boo.wav`. The words for each are its `text` in `show.toml` (`boo = { path = "build/cloned/pink_boo.wav", text = "Boo! Kah scare you?" }`). Without them, the show builds with no scenes, or just one if you have the sound effects. Three ways to make them:
 
-- **Record them yourself.** Use any recorder (QuickTime Player, your phone's voice memos) and save each line under the name `show.toml` gives it. Any format ffmpeg reads works: if you'd rather keep `pink_boo.m4a`, change the path in `show.toml` to match. A high, squeaky voice sounds most like a Furby. Trim the silence at each end and keep each line to a few seconds, because each DLC has room for only about 350 KB and audio costs about 2 KB a second.
-- **Let your Mac say them,** for a quick start. It won't sound like a Furby, but it lets you test everything. One line at a time:
+- **Let your computer say them,** for a quick start. It won't sound like a Furby, but it lets you test everything:
 
   ```bash
-  mkdir -p build/cloned
-  say -o build/cloned/pink_boo.wav --data-format=LEI16@16000 "Boo! Kah scare you?"
+  uv run voices.py
   ```
 
-  Repeat for each line in `show.toml`, with its file name and words.
+  This speaks every line that doesn't have a file yet, in a different voice for each Furby, and saves it where `show.toml` says. It uses a Mac's built-in voices, or [espeak-ng](https://github.com/espeak-ng/espeak-ng) on Windows and Linux. `uv run voices.py --list` shows each line and whether it has audio yet. To try other voices, run `say -v '?'` to see your Mac's, then `uv run voices.py --force --voice Whisper` (for every line), or set `voice = "Whisper"` under `[furbies.pink]` in `show.toml` (for one Furby). It never replaces a file that's already there unless you add `--force`, so you can record your own lines later, one at a time, and run it again for the rest.
+- **Record them yourself.** Use any recorder (QuickTime Player, your phone's voice memos) and save each line under the name `show.toml` gives it. Any format ffmpeg reads works: if you'd rather keep `pink_boo.m4a`, change the path in `show.toml` to match. A high, squeaky voice sounds most like a Furby. Trim the silence at each end and keep each line to a few seconds, because each DLC has room for only about 350 KB and audio costs about 2 KB a second.
 - **Clone a Furby's voice.** The original show's lines were made with an AI voice-cloning tool, using clips from the Furby's stock DLC as the sample voice. Those clips come from Hasbro's audio, so the cloned lines can't be shared here. `uv run audioutils/extract_voice.py` unpacks the stock clips to `build/voice/` if you want to try it yourself.
 
 **Sound effects (optional).** The cackles, scream, moan and creaky door come from [Freesound](https://freesound.org), public-domain (CC0) sounds only. Get a free API key at <https://freesound.org/apiv2/apply>, then:
@@ -135,6 +134,17 @@ If a Furby drops during the show, Terminal says so (`Blue dropped. Pink is still
 The show keeps both Furbies awake and plays a random scene every 20 to 45 seconds. Press Enter when trick-or-treaters walk up to play a greeting. Press Ctrl-C to stop. Keep the computer close to the Furbies, since Bluetooth's range is short.
 
 To run the show without a computer on the night, an ESP32 board can do the same job; see [Running the show from an ESP32](#running-the-show-from-an-esp32).
+
+### Give the show to a friend
+
+Once the show is built, a friend with their own two Furbies can run it without making any clips or building anything:
+
+```bash
+uv run package.py               # writes build/furby-show.zip
+uv run package.py --rehearsal   # also adds the clips, so they can run porch.py --rehearse
+```
+
+The zip holds both DLCs, `show.json` and a `README_FIRST.txt` with the steps: install uv, get this repository, unzip the bundle into it, `uv run deploy.py --no-build` to flash both Furbies, then `uv run porch.py`. It checks that the DLCs match `show.json` first, so build again if it says they don't. The DLCs are built from the Furby's stock DLC, which is Hasbro's, so send the zip privately (AirDrop, a message): never post it or commit it.
 
 ## Troubleshooting
 

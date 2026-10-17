@@ -568,6 +568,38 @@ class TestHalloween(unittest.TestCase):
         self.assertIn("cut %s by 0.5 s" % biggest, over)
         self.assertIn("drop an eye theme", over)
 
+    def test_clip_text_doesnt_change_build(self):
+        """A voice line's text is for voices.py: the DLCs and show.json come out the same with or without it"""
+        import json
+
+        import halloween
+        clip = "./audio/new_audio/darkside_wav.a18"
+        self.assertEqual(halloween.clip_spec({"path": clip, "text": "Boo!"})["text"], "Boo!")
+
+        def show(text):
+            extra = {"text": "Boo! Kah scare you?"} if text else {}
+            return {
+                "show": {"gap": 0.5, "every": [30, 60]},
+                "furbies": {
+                    "pink": {"theme": "demon", "clips": {"a": {"path": clip, **extra}}},
+                    "blue": {"theme": "pumpkin", "clips": {"b": {"path": clip, "before": 0.4, **extra}}},
+                },
+                "scenes": [{"steps": ["pink.a", "blue.b"]}],
+            }
+        outputs = []
+        for text in (False, True):
+            out_dir = os.path.join(self.temp_dir, "with" if text else "without")
+            with open(halloween.build_show(show(text), out_dir)) as f:
+                plan = json.load(f)
+            dlcs = []
+            for name in ("pink", "blue"):
+                with open(os.path.join(out_dir, name + ".dlc"), "rb") as f:
+                    dlcs.append(f.read())
+                for info in plan["furbies"][name]["clips"].values():
+                    self.assertNotIn("text", info)
+            outputs.append((dlcs, plan))
+        self.assertEqual(outputs[0], outputs[1])
+
     def test_envelope(self):
         """A clip's envelope is one loudness digit per 100 ms of what the Furby plays"""
         import halloween
@@ -2526,6 +2558,219 @@ class TestScripts(unittest.TestCase):
             with self.subTest(script=os.path.relpath(path, root)):
                 self.assertEqual(proc.returncode, 0, err)
                 self.assertIn("usage:", out)
+
+class FakeEngine:
+    """A text-to-speech engine that writes the words and voice instead of audio"""
+
+    name, suffix, command = "say", ".aiff", "fake-say"
+
+    def __init__(self, voices=("Albert", "Junior", "Whisper")):
+        self.voices = voices
+
+    def has_voice(self, voice):
+        return voice in self.voices
+
+    def speak(self, text, voice, out):
+        with open(out, "w") as f:
+            f.write("%s|%s" % (voice, text))
+
+
+def copy_audio(src, out):
+    shutil.copy(src, out)
+
+
+class TestVoices(unittest.TestCase):
+    """voices.py speaks each voice line's text into the file show.toml names"""
+
+    def setUp(self):
+        self.temp_dir = tempfile.mkdtemp()
+        self.path = lambda name: os.path.join(self.temp_dir, "cloned", name + ".wav")
+        self.show = {
+            "furbies": {
+                "pink": {"clips": {
+                    "boo": {"path": self.path("pink_boo"), "text": "Boo!"},
+                    "trick": {"path": self.path("pink_trick"), "before": 0.4, "text": "Trick."},
+                    "scream": os.path.join(self.temp_dir, "sfx", "scream.wav"),  # no text: not a voice line
+                }},
+                "blue": {"voice": "Whisper", "clips": {"hi": {"path": self.path("blue_hi"), "text": "Hi!"}}},
+            },
+            "scenes": [{"steps": ["pink.boo", "pink.trick", "pink.scream", "blue.hi"]}],
+        }
+
+    def tearDown(self):
+        shutil.rmtree(self.temp_dir)
+
+    def read(self, name):
+        with open(self.path(name)) as f:
+            return f.read()
+
+    def test_makes_missing_lines_only(self):
+        """Each missing line gets its Furby's voice; existing files stay unless forced"""
+        import voices
+        os.makedirs(os.path.dirname(self.path("pink_trick")))
+        with open(self.path("pink_trick"), "w") as f:
+            f.write("my own recording")
+        log = []
+        made, kept = voices.make_voices(self.show, FakeEngine(), convert=copy_audio, log=log.append)
+        self.assertEqual(made, ["pink.boo", "blue.hi"])
+        self.assertEqual(kept, ["pink.trick"])
+        self.assertEqual(self.read("pink_boo"), "Albert|Boo!")  # pink's default
+        self.assertEqual(self.read("blue_hi"), "Whisper|Hi!")  # blue's voice from show.toml
+        self.assertEqual(self.read("pink_trick"), "my own recording")
+        self.assertFalse(os.path.exists(os.path.join(self.temp_dir, "sfx")))
+        # --force remakes it; --furby and --voice narrow and override
+        made, _ = voices.make_voices(self.show, FakeEngine(), only=["pink"], voice="Junior", force=True,
+                                     convert=copy_audio, log=log.append)
+        self.assertEqual(made, ["pink.boo", "pink.trick"])
+        self.assertEqual(self.read("pink_trick"), "Junior|Trick.")
+        self.assertEqual(self.read("blue_hi"), "Whisper|Hi!")
+
+    def test_voices(self):
+        """An unknown chosen voice stops with a hint; a missing default falls back to the system voice"""
+        import voices
+        with self.assertRaises(SystemExit) as e:
+            voices.make_voices(self.show, FakeEngine(), voice="Nobody", convert=copy_audio, log=lambda m: None)
+        self.assertIn("say -v '?'", str(e.exception))
+        log = []
+        voices.make_voices(self.show, FakeEngine(voices=("Whisper",)), convert=copy_audio, log=log.append)
+        self.assertEqual(self.read("pink_boo"), "None|Boo!")
+        self.assertIn("pink: no Albert voice here, so using the system voice.", log)
+        self.assertEqual(voices.find_engine(lambda c: "/usr/bin/" + c if c == "espeak" else None).name, "espeak")
+        self.assertIsNone(voices.find_engine(lambda c: None))
+        # A synthesizer that fails says which line and how to see the voices, not a traceback
+        import subprocess
+
+        def fail(src, out):
+            raise subprocess.CalledProcessError(1, ["/usr/bin/ffmpeg"])
+        with self.assertRaises(SystemExit) as e:
+            voices.make_voices(self.show, FakeEngine(), force=True, convert=fail, log=log.append)
+        self.assertIn("pink.boo: couldn't make", str(e.exception))
+        self.assertIn("ffmpeg stopped", str(e.exception))
+
+    def test_main(self):
+        """The command line lists lines, makes them, and says what to run next"""
+        import voices
+        toml = os.path.join(self.temp_dir, "show.toml")
+        with open(toml, "w") as f:
+            f.write('[furbies.pink.clips]\nboo = { path = "%s", text = "Boo!" }\nscream = "%s"\n'
+                    '[[scenes]]\nsteps = ["pink.boo", "pink.scream"]\n'
+                    % (self.path("pink_boo"), os.path.join(self.temp_dir, "scream.wav")))
+        log = []
+        voices.main(["--show", toml, "--list"], log=log.append)
+        self.assertEqual(len(log), 1)
+        self.assertTrue(log[0].startswith("missing  pink.boo"))
+        self.assertIn('"Boo!"', log[0])
+        log = []
+        voices.main(["--show", toml], engine=FakeEngine(), convert=copy_audio, log=log.append)
+        self.assertEqual(self.read("pink_boo"), "Albert|Boo!")
+        self.assertIn("Next, build the show: uv run halloween.py --skip-missing", log)  # the scream's still missing
+        with self.assertRaises(SystemExit):
+            voices.main(["--show", toml, "--furby", "green"], engine=FakeEngine(), convert=copy_audio, log=log.append)
+        with self.assertRaises(SystemExit) as e:
+            voices.main(["--show", toml, "--force"], which=lambda c: None, log=log.append)
+        self.assertIn("espeak-ng", str(e.exception))
+
+    @unittest.skipUnless(shutil.which("ffmpeg"), "needs ffmpeg")
+    def test_to_wav_trims_and_resamples(self):
+        """The audio comes out 16 kHz mono 16-bit, without the silence at each end"""
+        import math
+        import struct
+        import wave
+
+        import voices
+        src, out = os.path.join(self.temp_dir, "raw.wav"), os.path.join(self.temp_dir, "out.wav")
+        rate = 22050
+        tone = [int(8000 * math.sin(2 * math.pi * 440 * n / rate)) for n in range(rate // 2)]
+        with wave.open(src, "wb") as w:
+            w.setnchannels(2)
+            w.setsampwidth(2)
+            w.setframerate(rate)
+            samples = [0] * rate + tone + [0] * rate  # 1 s of silence, 0.5 s of tone, 1 s of silence
+            w.writeframes(b"".join(struct.pack("<hh", s, s) for s in samples))
+        voices.to_wav(src, out)
+        with wave.open(out) as w:
+            self.assertEqual((w.getnchannels(), w.getsampwidth(), w.getframerate()), (1, 2, 16000))
+            self.assertAlmostEqual(w.getnframes() / 16000, 0.5, delta=0.1)
+
+
+class TestPackage(unittest.TestCase):
+    """package.py zips a built show for a friend to flash without building"""
+
+    def setUp(self):
+        import json
+        import zlib
+        self.temp_dir = tempfile.mkdtemp()
+        self.addCleanup(os.chdir, os.getcwd())
+        os.chdir(self.temp_dir)  # clip sources in show.json are relative to the repo root
+        os.makedirs("build/halloween/pink")
+        os.makedirs("build/cloned")
+        self.plan = {"furbies": {}, "scenes": []}
+        for name in ("pink", "blue"):
+            data = name.encode() * 100
+            with open("build/halloween/%s.dlc" % name, "wb") as f:
+                f.write(data)
+            self.plan["furbies"][name] = {"checksum": zlib.adler32(data), "clips": {}}
+        for path in ("build/cloned/pink_boo.wav", "build/halloween/pink/toccata.wav"):
+            with open(path, "w") as f:
+                f.write("audio")
+        self.plan["furbies"]["pink"]["clips"] = {
+            "boo": {"source": "build/cloned/pink_boo.wav"},
+            "toccata": {"source": "build/halloween/pink/toccata.wav"},  # a cut clip's snippet
+            "march": {"source": "audio/new_audio/imperial_march-16000_wav.a18"},  # comes with the repo
+            "gone": {"source": "build/cloned/pink_gone.wav"},
+        }
+        with open("build/halloween/show.json", "w") as f:
+            json.dump(self.plan, f)
+
+    def tearDown(self):
+        shutil.rmtree(self.temp_dir)
+
+    def test_package(self):
+        """The zip has what deploy.py --no-build and porch.py need, where they look for it"""
+        import zipfile
+
+        import package
+        log = []
+        package.main([], log=log.append)
+        with zipfile.ZipFile("build/furby-show.zip") as z:
+            self.assertEqual(sorted(z.namelist()), ["README_FIRST.txt", "build/halloween/blue.dlc",
+                                                    "build/halloween/pink.dlc", "build/halloween/show.json"])
+            readme = z.read("README_FIRST.txt").decode()
+        self.assertIn("uv run deploy.py --no-build", readme)
+        self.assertIn("unzip -o ~/Downloads/furby-show.zip", readme)
+        self.assertNotIn("--rehearse", readme)
+        self.assertTrue(any("PRIVATE" in line and "Hasbro" in line for line in log))
+        # --rehearsal adds the audio porch.py --rehearse plays, but not what the repository has
+        log = []
+        package.main(["--rehearsal", "--out", "build/rehearse.zip"], log=log.append)
+        with zipfile.ZipFile("build/rehearse.zip") as z:
+            names = z.namelist()
+            self.assertIn("--rehearse", z.read("README_FIRST.txt").decode())
+        self.assertIn("build/cloned/pink_boo.wav", names)
+        self.assertIn("build/halloween/pink/toccata.wav", names)
+        self.assertFalse(any(n.startswith("audio/") for n in names))
+        self.assertIn("pink.gone: no build/cloned/pink_gone.wav, so it's left out of the rehearsal.", log)
+        # A commit GitHub has pins the friend's code to the version that built the show
+        from types import SimpleNamespace
+        package.main([], log=log.append, run=lambda cmd, **kw: SimpleNamespace(stdout="abc1234\n"))
+        with zipfile.ZipFile("build/furby-show.zip") as z:
+            readme = z.read("README_FIRST.txt").decode()
+        self.assertIn("git checkout abc1234", readme)
+        self.assertIn("archive/abc1234.zip", readme)
+        self.assertEqual(package.published_commit(lambda cmd, **kw: SimpleNamespace(stdout="")), None)
+
+    def test_refuses_stale_dlc(self):
+        """A DLC that doesn't match show.json's checksum stops the zip"""
+        import package
+        with open("build/halloween/blue.dlc", "ab") as f:
+            f.write(b"changed")
+        with self.assertRaises(SystemExit) as e:
+            package.main([], log=lambda m: None)
+        self.assertIn("doesn't match show.json", str(e.exception))
+        self.assertFalse(os.path.exists("build/furby-show.zip"))
+        os.remove("build/halloween/show.json")
+        with self.assertRaises(SystemExit):
+            package.main([], log=lambda m: None)
 
 
 if __name__ == '__main__':

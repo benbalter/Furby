@@ -152,7 +152,8 @@ def missing_clips(r, missing):
         elif kind == "cloned":
             r.fail(
                 "Voice lines missing: %s." % names,
-                "Record or clone each line and save it where show.toml says, e.g. %s" % clips[0][1],
+                "Make stand-ins with this computer's voice: uv run voices.py. "
+                "Or record each line and save it where show.toml says, e.g. %s" % clips[0][1],
             )
         else:
             r.fail("Clip missing: %s." % names, "Put the audio file at %s (any format ffmpeg reads)" % kind)

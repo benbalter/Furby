@@ -259,8 +259,8 @@ def timeline(theme, frames=FRAMES):
     return _repeat(THEMES[theme]["pattern"], frames)
 
 
-def _palette(images):
-    """One palette for every frame: index 0 transparent (unused), then COLOURS colours.
+def _palette(images, zero=(248, 0, 248, 0)):
+    """One palette for every frame: index 0 (unused; `zero`, by default transparent), then COLOURS colours.
 
     Returns (palette as 64 (R, G, B, A) tuples, each image as a list of palette indices).
     """
@@ -273,7 +273,7 @@ def _palette(images):
     rgb += rgb[:3] * (COLOURS - len(rgb) // 3)
     pal = Image.new("P", (1, 1))
     pal.putpalette(rgb + rgb[:3] * (256 - COLOURS))  # padding repeats colour 0, which wins ties
-    palette = [(248, 0, 248, 0)] + [(rgb[3 * i], rgb[3 * i + 1], rgb[3 * i + 2], 0xFF) for i in range(COLOURS)]
+    palette = [zero] + [(rgb[3 * i], rgb[3 * i + 1], rgb[3 * i + 2], 0xFF) for i in range(COLOURS)]
     # Each image dithers on its own, so identical areas stay identical and share cels.
     return palette, [[(p if p < COLOURS else 0) + 1 for p in im.quantize(palette=pal).tobytes()] for im in images]
 
@@ -299,7 +299,7 @@ def _set_frames(S, playlist, frames):
     p["frame_indices"], p["framecount"] = slots, len(slots)
 
 
-def install_animations(D, animations):
+def install_animations(D, animations, zero=(248, 0, 248, 0)):
     """Put animations on the DLC's eyes; returns the eye word for each (0x8401, 0x8402, ...).
 
     animations: a list of (keyframes, timeline) pairs, keyframes being 128x128
@@ -319,7 +319,7 @@ def install_animations(D, animations):
         if not FRAMES <= len(order) <= MAX_FRAMES:
             raise SystemExit("Animations can be %d to %d frames, not %d." % (FRAMES, MAX_FRAMES, len(order)))
     CEL, S, PAL = D.dlc_sections["CEL"], D.dlc_sections["SPR"], D.dlc_sections["PAL"]
-    palette, pixels = _palette([k for keys, _ in animations for k in keys])
+    palette, pixels = _palette([k for keys, _ in animations for k in keys], zero)
     PAL.palettes[4][:] = palette
     PAL.palettes[5][:] = palette
 
@@ -545,55 +545,85 @@ def build(
     return dlc_out
 
 
-# --probe's test DLCs: {file: (animations, actions)}. Each animation is
-# (digits, frames, colour): the digits count up across its frames, so filming
-# one shows the frame time and whether every frame played. actions maps an
-# action to the animation it shows.
+# --probe's test DLCs, one question each, every digit unique so a photo says
+# which animation it came from. {file: (animations, actions, how)}. Each
+# animation is (digits, frames, colour): the digits count up across its
+# frames on solid black. actions maps an action to the animation it shows.
+# how: "multi" is install_animations() with palette index 0 opaque black;
+# "single" is the same with one animation (one_eye_animation); "demo" is the
+# old path that has shown eyes on a Furby: GIFs through demo.install_eyes().
+# The first probe.dlc (several animations, index 0 transparent) showed
+# scrambled blue, red and green tiles instead of digits on every action.
 RED, GREEN, CYAN = (255, 40, 20), (40, 255, 60), (40, 230, 255)
+BLACK = (0, 0, 0, 0xFF)
+EVERY = [(75, 0, 4, 4), (75, 0, 3, 4), (75, 0, 0, 3), (75, 0, 4, 2)]
 PROBE = {
-    "probe.dlc": (
-        [("1234", FRAMES, RED), ("1234", FRAMES, GREEN), ("12345678", 2 * FRAMES, CYAN)],
-        {
-            (75, 0, 4, 4): 0,  # red 1-4: animation 1, the layout known to work; delays between repeats
-            (75, 0, 3, 4): 1,  # green 1-4: does animation 2 (0x8402) play at all?
-            (75, 0, 0, 3): 2,  # cyan 1-8: does animation 3 play, and all 76 of its frames?
-            (75, 0, 4, 2): 0,  # red 1-4 once, with a built-in motion and no delays
-        },
+    "eyesa.dlc": (
+        [("12", FRAMES, RED), ("34", FRAMES, GREEN), ("5678", 2 * FRAMES, CYAN)],
+        {(75, 0, 4, 4): 0, (75, 0, 3, 4): 1, (75, 0, 0, 3): 2, (75, 0, 4, 2): 0},
+        "multi",
     ),
-    # Only animation 1, 76 frames long: whether eye_frames works with one_eye_animation.
-    "probe_long.dlc": ([("12345678", 2 * FRAMES, RED)], {(75, 0, 4, 4): 0, (75, 0, 4, 2): 0}),
+    "eyesb.dlc": ([("12", FRAMES, RED)], dict.fromkeys(EVERY, 0), "single"),
+    "eyesc.dlc": ([("12", FRAMES, RED)], dict.fromkeys(DEMO_ACTIONS, 0), "demo"),
 }
 
 
-def build_probe(dlc_in="./dlc/dlc2/tu003410.dlc", out_dir="./build/eyes_probe"):
+def _ramp():
+    """The palette the old draw_eyes() used: 63 shades black → red → yellow → white, then black."""
+    stops = [(0, 0, 0), (90, 0, 0), (255, 0, 0), (255, 110, 0), (255, 220, 40), (255, 255, 255)]
+    colours = []
+    for i in range(63):
+        t = i / 62 * (len(stops) - 1)
+        a, b = stops[int(t)], stops[min(int(t) + 1, len(stops) - 1)]
+        colours.append(tuple(round(a[c] + (b[c] - a[c]) * (t - int(t))) for c in range(3)))
+    pal = Image.new("P", (1, 1))
+    pal.putpalette([v for c in colours + [(0, 0, 0)] for v in c])
+    return pal
+
+
+def _demo_gifs(keys, work_dir):
+    """Keyframes as single-frame GIFs on one palette, the way the old draw_eyes() wrote them."""
+    os.makedirs(work_dir, exist_ok=True)
+    pal, paths = _ramp(), []
+    for n, key in enumerate(keys):
+        path = os.path.join(work_dir, "frame_%d.gif" % n)
+        key.quantize(palette=pal, dither=Image.Dither.NONE).save(path, optimize=False, transparency=63)
+        paths.append(path)
+    return paths
+
+
+def build_probe(dlc_in="./dlc/dlc2/tu003410.dlc", out_dir="./build/eyes_probe2"):
     """DLCs of numbered test animations that answer what's unverified about eyes; returns their paths."""
+    from demo import install_eyes
+
     os.makedirs(out_dir, exist_ok=True)
     paths = []
-    for name, (anims, actions) in PROBE.items():
+    for name, (anims, actions, how) in PROBE.items():
         animations = []
         for digits, frames, colour in anims:
             keys = [_digit(int(d), colour).resize((SIZE, SIZE), Image.LANCZOS) for d in digits]
             animations.append((keys, [i * len(digits) // frames for i in range(frames)]))
         D = dlc(dlc_in)
         D.dlc_sections["AMF"].minify_audio(128)
-        words = install_animations(D, animations)
-        for code, n in actions.items():
-            D.trigger_custom_graphics(code, words[n])
+        if how == "demo":
+            gifs = _demo_gifs(animations[0][0], os.path.join(out_dir, name[:-4]))
+            install_eyes(D, gifs, gifs)  # shows frame 0 for frames 0-9 and 19-28, frame 1 for the rest
+            words = [FIRST_ANIMATION]
+        else:
+            words = install_animations(D, animations, BLACK)
+            for code, n in actions.items():
+                D.trigger_custom_graphics(code, words[n])
         path = os.path.join(out_dir, name)
         D.build(path)
         _check_size(path, "Use fewer probe digits.")
         built = dlc(path)
         for w in words:
             save_preview(render(built, w), os.path.join(out_dir, "%s_%04x.gif" % (name[:-4], w)))
-        print("Built %s (%d KB):" % (path, os.path.getsize(path) // 1000))
+        print("Built %s (%d KB, %s):" % (path, os.path.getsize(path) // 1000, how))
         for code, n in actions.items():
             digits, frames, _ = anims[n]
             print("  %s  0x%04x, %d frames: digits %s" % ("-".join(map(str, code)), words[n], frames, digits))
         paths.append(path)
-    print("Flash probe.dlc and trigger each action from FurBLE's custom action box. Film each one:")
-    print("how long each digit shows (frame time = that / %g), and whether the eyes go back to" % (FRAMES / 4))
-    print("normal between repeats. No green digits on 75-0-3-4 means only one animation works: then")
-    print("flash probe_long.dlc to see whether a 76-frame animation 1 counts all the way to 8.")
     return paths
 
 
@@ -605,14 +635,14 @@ if __name__ == "__main__":
     parser.add_argument("--no-song", action="store_true", help="leave 75-0-4-4 and 75-0-3-4 alone, to save space")
     parser.add_argument("--frames", type=int, default=FRAMES, help="frames per animation (default %d)" % FRAMES)
     parser.add_argument("--preview", action="store_true", help="write build/eyes/<theme>.gif for every theme")
-    parser.add_argument("--probe", action="store_true", help="build a DLC that tests what's unverified")
+    parser.add_argument("--probe", action="store_true", help="build DLCs that test what's unverified")
     parser.add_argument("--out-dir", default="./build")
     args = parser.parse_args()
     if args.preview:
         for t in sorted(THEMES):
             print(preview(t, os.path.join(args.out_dir, "eyes"), args.frames))
     elif args.probe:
-        build_probe(out_dir=os.path.join(args.out_dir, "eyes_probe"))
+        build_probe(out_dir=os.path.join(args.out_dir, "eyes_probe2"))
     else:
         if args.no_song:
             args.song = args.sting = None

@@ -283,20 +283,22 @@ class TestCustomEyes(unittest.TestCase):
         import spooky_eyes
         paths = spooky_eyes.build_probe(out_dir=self.temp_dir)
         self.assertEqual([os.path.basename(p) for p in paths], list(spooky_eyes.PROBE))
-        for path, (anims, actions) in zip(paths, spooky_eyes.PROBE.values(), strict=True):
-            self.assertLess(os.path.getsize(path), spooky_eyes.MAX_UPLOAD)
+        for path, (anims, actions, how) in zip(paths, spooky_eyes.PROBE.values(), strict=True):
+            self.assertLessEqual(len(os.path.basename(path)), 12)  # the Furby keeps 8.3 names
+            self.assertLess(os.path.getsize(path), 200000)
             D = dlc(path)
             self.assertEqual(len(D.dlc_sections["SPR"].frame_playlists), 8 + 8 * len(anims))
+            if how != "demo":
+                self.assertEqual(D.dlc_sections["PAL"].palettes[5][0], (0, 0, 0, 0xFF))
             for code, n in actions.items():
                 digits, frames, _ = anims[n]
                 self.assertEqual(set(spooky_eyes.eye_words(D, code)), {0x8401 + n})
-                rendered = spooky_eyes.render(D, 0x8401 + n)
-                self.assertEqual(len(rendered), frames)
-                self.assertEqual(len({f.tobytes() for f in rendered}), len(digits))
-        # every animation in probe.dlc looks different, so one can't pass for another
-        D = dlc(paths[0])
-        frames = [{f.tobytes() for f in spooky_eyes.render(D, 0x8401 + n)} for n in range(3)]
-        self.assertFalse(frames[0] & frames[1] or frames[0] & frames[2] or frames[1] & frames[2])
+                rendered = {f.tobytes() for f in spooky_eyes.render(D, 0x8401 + n)}
+                self.assertEqual(len(spooky_eyes.render(D, 0x8401 + n)), frames)
+                self.assertEqual(len(rendered), len(digits))
+            if how == "multi":  # each of eyesa's animations looks unlike the others
+                frames = [{f.tobytes() for f in spooky_eyes.render(D, 0x8401 + n)} for n in range(3)]
+                self.assertFalse(frames[0] & frames[1] or frames[0] & frames[2] or frames[1] & frames[2])
 
     def test_previews(self):
         """--preview writes a GIF of the timeline and a sheet of the keyframes"""

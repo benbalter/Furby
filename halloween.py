@@ -24,21 +24,40 @@ apart by the name of the DLC each has active, so keep the file names.
 
 import argparse
 import json
+import math
 import os
 import subprocess
 import sys
 import tomllib
 import zlib
+from array import array
+
+import a1800_codec
 
 from furby import dlc
-from furbyshow import step_parts
+from furbyshow import EFFECTS, ENVELOPE_HZ, LIGHT_HZ, LIGHT_MAX_HZ, scale, step_parts
 from spooky_eyes import FRAMES, MIXES, build, scene_slots
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "audioutils"))
 from encode_a18 import encode  # noqa: E402
 
 A18_BYTES_PER_SECOND = 2000  # 16 kbit/s
+A18_RATE = 16000  # samples a second when decoded
 DLC_MOTOR = 0xC  # top nibble of a sequence's motor word when it runs one of the DLC's own routines
+# The antenna's light for each eye theme, so it plays along with the eyes
+# (furbyshow.light_rgb draws the effects). show.toml can change any of it.
+THEME_LIGHTS = {
+    "demon": {"effect": "pulse", "color": [255, 0, 0]},
+    "bloodshot": {"effect": "voice", "color": [170, 0, 0]},
+    "storm": {"effect": "lightning", "color": [60, 80, 255]},
+    "pumpkin": {"effect": "candle", "color": [255, 80, 0]},
+    "ghost": {"effect": "wisp", "color": [150, 200, 255]},
+    "hypno": {"effect": "cycle", "color": [255, 0, 255]},
+}
+# An envelope's 0: this far below the clip's loudest moment, or quieter. At
+# -36 speech sat at 7-9 throughout; -24 lets syllables show.
+QUIETEST_DB = -24
+GP_HEADER, GP_HEADER_SIZE = b"\x00\xff\x00\xffGENERALPLUS", 0x30
 
 
 def quick_slots(D):
@@ -97,6 +116,67 @@ def clip_eyes(furby, clips, one=False):
     return mix[0], eyes
 
 
+def light_spec(value, where):
+    """A light from show.toml as a dict: an effect name, an eye theme's light, or a table."""
+    if value is None:
+        return {}
+    if isinstance(value, str):
+        value = dict(THEME_LIGHTS[value]) if value in THEME_LIGHTS else {"effect": value}
+    spec = dict(value)
+    if spec.get("effect", "steady") not in EFFECTS:
+        raise SystemExit(
+            "%s: unknown light %r. Use an effect (%s) or an eye theme (%s)."
+            % (where, spec["effect"], ", ".join(EFFECTS), ", ".join(THEME_LIGHTS))
+        )
+    return spec
+
+
+def clip_light(name, furby, clip, theme, spec):
+    """A clip's antenna light for show.json, {"effect", "color"}, or None for none.
+
+    Its eye theme's light (THEME_LIGHTS), changed by the Furby's light and then
+    the clip's own. The Furby's antenna color is the fallback for a light with
+    no color of its own.
+    """
+    light = {"effect": "voice", "color": furby.get("antenna")}
+    light.update(THEME_LIGHTS.get(theme, {}))
+    light.update(light_spec(furby.get("light"), "furbies.%s.light" % name))
+    light.update(light_spec(spec.get("light"), "furbies.%s.clips.%s.light" % (name, clip)))
+    if light["effect"] == "off" or not light.get("color"):
+        return None
+    return {"effect": light["effect"], "color": list(light["color"])}
+
+
+def envelope(a18_path, hz=ENVELOPE_HZ):
+    """How loud a clip is over time, as one digit (0-9) per 1/hz s, e.g. "0379975310".
+
+    Taken from the encoded clip, so it lines up with what the Furby plays. Each
+    level is the loudness (RMS) of its slice in decibels below the clip's
+    loudest slice: 9 is the loudest, 0 is QUIETEST_DB or quieter. A digit
+    string costs a byte a frame in show.json and on the board.
+    """
+    with open(a18_path, "rb") as f:
+        data = f.read()
+    if data.startswith(GP_HEADER):  # A1800.DLL's files (like audio/new_audio's) have an extra header
+        data = data[GP_HEADER_SIZE:]
+    try:
+        samples = array("h", bytes(a1800_codec.decode(data)))
+    except ValueError as e:  # the show still runs: its light just doesn't follow the sound
+        print("%s: can't decode it for the antenna light (%s)" % (a18_path, e))
+        return None
+    if sys.byteorder == "big":
+        samples.byteswap()  # the codec gives little-endian samples
+    n = A18_RATE // hz
+    slices = [samples[i : i + n] for i in range(0, len(samples), n)]
+    rms = [math.sqrt(sum(s * s for s in part) / len(part)) for part in slices]
+    loudest = max(rms, default=0) or 1
+    levels = []
+    for r in rms:
+        db = 20 * math.log10(r / loudest) if r else QUIETEST_DB
+        levels.append(str(max(0, min(9, round(9 * (1 - db / QUIETEST_DB))))))
+    return "".join(levels)
+
+
 def encode_clip(name, spec, work_dir):
     """The clip as .a18, cut to its start and seconds if given; returns its path."""
     if spec["path"].endswith(".a18") and not (spec.get("start") or spec.get("seconds")):
@@ -122,10 +202,13 @@ def build_show(show, out_dir="./build/halloween", skip_missing=False, dlc_in="./
     """Build each Furby's DLC and show.json; returns show.json's path."""
     os.makedirs(out_dir, exist_ok=True)
     slots = quick_slots(dlc(dlc_in))
+    idle_glow = show["show"].get("idle_glow", 0)
     plan = {
         "gap": show["show"]["gap"],
         "every": show["show"]["every"],
         "cooldown": show["show"].get("cooldown", 0),
+        "light_hz": max(1, min(LIGHT_MAX_HZ, int(show["show"].get("light_hz", LIGHT_HZ)))),
+        "envelope_hz": ENVELOPE_HZ,
         "furbies": {},
         "scenes": [],
         "greetings": [],
@@ -160,13 +243,21 @@ def build_show(show, out_dir="./build/halloween", skip_missing=False, dlc_in="./
         )
         with open(dlc_out, "rb") as f:
             checksum = zlib.adler32(f.read())  # the Furby reports this for its active DLC
+        lights = {k: clip_light(name, furby, k, eyes[k], clips[k]) for k in a18}
+        # Only effects that change with the sound need its envelope
+        envelopes = {k: envelope(a18[k]) for k in a18 if lights[k] and lights[k]["effect"] != "steady"}
+        main = clip_light(name, furby, None, theme, {})  # the main eyes' light, for the idle glow
         plan["furbies"][name] = {
             "checksum": checksum,
             "antenna": furby.get("antenna"),
+            **({"idle": list(scale(main["color"], idle_glow))} if idle_glow and main else {}),
             "clips": {
                 k: {
                     "action": list(codes[k]),
                     "eyes": eyes[k],
+                    "light": lights[k] or {"effect": "off"},
+                    # Only effects that change with the sound need it
+                    **({"envelope": envelopes[k]} if envelopes.get(k) else {}),
                     "seconds": round((os.path.getsize(a18[k]) - 6) / A18_BYTES_PER_SECOND, 2),
                     # porch.py --rehearse plays this: just the snippet when the clip is cut
                     "source": preview_clip(k, clips[k], work_dir)

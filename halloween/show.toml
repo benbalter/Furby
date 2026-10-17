@@ -19,6 +19,17 @@ eye_frames = 38            # frames per eye animation: 38 is the stock length; u
 one_eye_animation = false  # true: every clip shows its Furby's first eyes, the one layout
                            # tested on a Furby. Use it if uv run spooky_eyes.py --probe
                            # shows that a second animation (0x8402) doesn't play.
+# Antenna light: while a Furby speaks, its antenna plays its clip's eyes'
+# light, which swells with the sound: demon = red pulse, bloodshot = deep red,
+# storm = blue glow with white lightning, pumpkin = orange candle flicker,
+# ghost = pale wisp, hypno = color cycle. Change it with light = ... on a
+# Furby or a clip: an effect (off, steady, voice, candle, pulse, wisp,
+# lightning, cycle), an eye theme's name, or a table such as
+# { effect = "pulse", color = [0, 255, 0] }. A Furby's light = { color = [...] }
+# keeps one color for all its lines, so you can tell who's talking.
+# Tune it without Furbies: python porch.py --rehearse
+light_hz = 10   # antenna updates a second during a line (1-15); lower it if lines stutter
+idle_glow = 0   # e.g. 0.15: in a scene, a Furby glows this dimly while the other speaks
 
 # Pink is the evil Furby: demon eyes, scary lines.
 [furbies.pink]
@@ -26,13 +37,13 @@ one_eye_animation = false  # true: every clip shows its Furby's first eyes, the 
 # eyes = "storm" in its table. The first is the main one. Each theme costs
 # about 37 KB of the DLC. Themes: demon, pumpkin, storm, bloodshot, ghost, hypno.
 eyes = ["demon", "bloodshot", "storm"]
-antenna = [255, 0, 0]  # antenna color while it speaks (red, green, blue)
+antenna = [255, 0, 0]  # fallback antenna color (red, green, blue), for a light with none
 
 [furbies.pink.clips]
 cackle = "build/sfx/witch-cackle-0.wav"
 cackle2 = "build/sfx/witch-cackle-1.wav"
 scream = { path = "build/sfx/scream-0.wav", eyes = "storm" }
-moan = "build/sfx/ghost-moan-0.wav"
+moan = { path = "build/sfx/ghost-moan-0.wav", light = "ghost" }  # a pale wisp, whatever its eyes
 midnight = "build/cloned/pink_dontfeed.wav"  # "Don't feed Kah after midnight..."
 boo = "build/cloned/pink_boo.wav"  # "Boo! Kah scare you?"
 dare = "build/cloned/pink_dare.wav"  # "Take two... if you DARE."

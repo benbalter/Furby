@@ -14,6 +14,7 @@ The commands are the ones FurBLE sends (https://github.com/pdjstone/furby-web-bl
 """
 
 import asyncio
+import math
 import random
 import time
 
@@ -32,6 +33,12 @@ SEQUENCE_ENDED = b"\x20\x0e"
 PLAY_REPLY_MS = 1000  # a Furby answers a trigger within about 0.1 s
 PLAY_PATIENCE_MS = 25000  # the longest stock sequence in a scene slot runs about 21 s
 RETRY_FIND_S = 15  # how often to look again for a missing Furby
+OFF = (0, 0, 0)
+LIGHT_HZ = 10  # antenna updates a second while a line plays: show.toml's light_hz
+LIGHT_MAX_HZ = 15  # don't flood the Furby, or an ESP32 radio shared by two, with writes
+ENVELOPE_HZ = 10  # loudness levels a second in a clip's envelope (see halloween.envelope)
+# What an antenna can do while its Furby speaks (see light_rgb)
+EFFECTS = ("off", "steady", "voice", "candle", "pulse", "wisp", "lightning", "cycle")
 
 
 def ticks_ms():
@@ -80,6 +87,92 @@ def step_parts(step):
     return [part.strip() for part in step.split("+")]
 
 
+def _byte(x):
+    return max(0, min(255, int(x + 0.5)))
+
+
+def scale(rgb, k):
+    """rgb dimmed (or brightened) by k, as a tuple of bytes."""
+    return (_byte(rgb[0] * k), _byte(rgb[1] * k), _byte(rgb[2] * k))
+
+
+def hue_rgb(h):
+    """A fully saturated colour for hue h (0 to 1 goes once round the wheel)."""
+    h = (h % 1) * 6
+    i, f = int(h) % 6, h - int(h)
+    r, g, b = ((1, f, 0), (1 - f, 1, 0), (0, 1, f), (0, 1 - f, 1), (f, 0, 1), (1, 0, 1 - f))[i]
+    return (_byte(r * 255), _byte(g * 255), _byte(b * 255))
+
+
+def _noise(n, seed):
+    """Repeatable noise in 0-1 for frame n, so rehearsals and tests see the same flicker.
+
+    Small-int arithmetic only, so it allocates nothing on MicroPython.
+    """
+    x = (n * 7919 + seed * 104729 + 12345) & 0xFFFF
+    x ^= x >> 7
+    x = (x * 2053 + 13849) & 0xFFFF
+    x ^= x >> 9
+    return x / 0xFFFF
+
+
+def envelope_level(envelope, t_ms, hz=ENVELOPE_HZ):
+    """How loud a clip is t_ms in, 0-1, from its envelope ("0379...", a digit per 1/hz s).
+
+    No envelope (a show.json from before lights followed the sound) counts as
+    full volume, and past the end as silence.
+    """
+    if not envelope:
+        return 1.0
+    i = t_ms * hz // 1000
+    return (ord(envelope[i]) - 48) / 9 if 0 <= i < len(envelope) else 0.0
+
+
+def light_rgb(light, t_ms, level, seed=0, hz=LIGHT_HZ):
+    """The antenna colour t_ms into a line, for a clip's light ({"effect", "color"}).
+
+    level is how loud the clip is then (envelope_level), so every effect but
+    steady swells with the sound. seed varies the flicker from clip to clip.
+    An effect this engine doesn't know glows steady, so a newer show.json
+    still lights up.
+    """
+    effect, rgb = light.get("effect", "steady"), light.get("color") or OFF
+    n = t_ms * hz // 1000  # frame number, so noise changes once a frame
+    if effect == "off":
+        return OFF
+    if effect == "voice":  # brightness follows the sound
+        return scale(rgb, 0.15 + 0.85 * level)
+    if effect == "candle":  # a jack-o'-lantern's flicker, livelier when loud
+        return scale(rgb, 0.35 + 0.35 * level + 0.3 * _noise(n, seed))
+    if effect == "pulse":  # a slow throb, pushed brighter by the voice
+        wave = 0.5 + 0.5 * math.sin(2 * math.pi * t_ms / 1200)
+        return scale(rgb, max(0.2 + 0.5 * wave, level))
+    if effect == "wisp":  # a faint, slow breath
+        wave = 0.5 + 0.5 * math.sin(2 * math.pi * t_ms / 3000)
+        return scale(rgb, 0.15 + 0.3 * wave + 0.45 * level)
+    if effect == "lightning":  # a dim glow with white flashes, more of them when loud
+        if _noise(n, seed) < 0.04 + 0.3 * level * level:
+            return (255, 255, 255)
+        return scale(rgb, 0.1 + 0.5 * level)
+    if effect == "cycle":  # round the colour wheel, brighter and further when loud
+        return scale(hue_rgb(t_ms / 2500 + seed / 7 + 0.3 * level), 0.4 + 0.6 * level)
+    return scale(rgb, 1)
+
+
+def clip_light(furby_plan, info):
+    """A clip's light from show.json, or None for none.
+
+    A show.json from before lights followed the eyes has no light, so the
+    Furby's antenna colour glows steady, as it used to.
+    """
+    light = info.get("light")
+    if light is None and furby_plan.get("antenna"):
+        light = {"effect": "steady", "color": furby_plan["antenna"]}
+    if not light or light.get("effect") == "off":
+        return None
+    return light
+
+
 def pick_scene(scenes, present, last=None):
     """A random scene whose Furbies are all connected, avoiding a repeat if possible."""
     ready = [s for s in scenes if all(p.split(".")[0] in present for step in s for p in step_parts(step))]
@@ -97,6 +190,7 @@ class Furby:
         self.checksum = None
         self.waiting = []  # [prefix, response, event] for commands awaiting a reply
         self.last_sent = ticks_ms()
+        self.antenna = None  # the colour last sent, or None if unknown
 
     def __str__(self):
         return self.name or str(self.address)
@@ -183,7 +277,14 @@ class Furby:
                 pass
 
     async def set_antenna(self, rgb):
+        self.antenna = None  # unknown until the write goes through
         await self.command(antenna_command(rgb))
+        self.antenna = tuple(rgb)
+
+    async def glow(self, rgb):
+        """Set the antenna unless it already shows rgb, to keep Bluetooth traffic down."""
+        if tuple(rgb) != self.antenna:
+            await self.set_antenna(rgb)
 
     async def keep_alive(self):
         while self.connected():
@@ -259,6 +360,53 @@ class Show:
             self.log("Connected to %s" % furby)
             asyncio.create_task(furby.keep_alive())
 
+    def light_hz(self):
+        """Antenna updates a second during a line, from show.json, kept to 1-15."""
+        return max(1, min(LIGHT_MAX_HZ, int(self.plan.get("light_hz", LIGHT_HZ))))
+
+    def rest(self, name):
+        """A Furby's antenna between its lines: its idle glow during a scene, otherwise off."""
+        return (self.playing and self.plan["furbies"][name].get("idle")) or OFF
+
+    async def quietly(self, furby, rgb):
+        """Set the antenna if possible; a Furby that just dropped mustn't hide the real error."""
+        try:
+            await furby.glow(rgb)
+        except Exception:
+            pass
+
+    async def light_line(self, furby, info, light, rest, stop):
+        """Animate a Furby's antenna for its line, until the clip ends or stop is set.
+
+        Runs alongside the line rather than in front of it, so it never delays
+        a trigger. Frames go by the clock, not a frame count, so a slow write
+        doesn't put the light behind the sound, and an unchanged colour isn't
+        resent. At the clip's own end (the shorter half of a duet, say) the
+        antenna goes back to rest.
+        """
+        hz = self.light_hz()
+        seed = info["action"][2] * 31 + info["action"][3]  # so two Furbies don't flicker in step
+        envelope, envelope_hz = info.get("envelope"), self.plan.get("envelope_hz", ENVELOPE_HZ)
+        start = ticks_ms()
+        while not stop.is_set():
+            t = ticks_diff(ticks_ms(), start)
+            if t >= info["seconds"] * 1000:
+                await self.quietly(furby, rest)
+                return
+            try:
+                rgb = light_rgb(light, t, envelope_level(envelope, t, envelope_hz), seed, hz)
+            except Exception as e:  # a bad light in show.json: say so rather than go quietly dark
+                self.log("%s's light stopped: %s" % (furby, e))
+                return
+            try:
+                await furby.glow(rgb)
+            except Exception:  # it dropped mid-line; the show reconnects later
+                return
+            try:
+                await asyncio.wait_for(stop.wait(), 1 / hz)
+            except asyncio.TimeoutError:
+                pass
+
     async def play_step(self, step):
         """Play one step: a clip, or several at once ("pink.a + blue.a") for a duet."""
         self.heartbeat = ticks_ms()
@@ -266,34 +414,59 @@ class Show:
         for part in step_parts(step):
             name, clip = part.split(".")
             plan = self.plan["furbies"][name]
-            lines.append((self.furbies[name], plan["clips"][clip], plan.get("antenna")))
+            info = plan["clips"][clip]
+            lines.append((self.furbies[name], info, clip_light(plan, info), name))
         # A clip's "before" holds an extra beat first, e.g. before a punchline.
-        before = max(info.get("before", 0) for _, info, _ in lines)
+        before = max(line[1].get("before", 0) for line in lines)
         if before:
             await self.sleep(before)
-        # Each speaking Furby's antenna glows its color for the line. Light them
-        # all first, then trigger the clips back to back so duets start together.
-        for furby, _, antenna in lines:
-            if antenna:
-                await furby.set_antenna(antenna)
+        # Each speaking Furby's antenna lights for its line (see light_rgb). Light
+        # them all first, then trigger the clips back to back so duets start
+        # together; each light then follows its own line from when it starts.
+        for furby, info, light, _ in lines:
+            if light:
+                level = envelope_level(info.get("envelope"), 0)
+                await furby.glow(light_rgb(light, 0, level, info["action"][2] * 31 + info["action"][3]))
+        stop = asyncio.Event()
+        tasks = []
         parts = step_parts(step)
-        for i, (furby, info, _) in enumerate(lines):
-            if not await furby.play(info["action"]):
-                self.log("%s skipped: %s stayed busy with its last sequence" % (parts[i], furby))
-        await self.sleep(max(info["seconds"] for _, info, _ in lines))
-        for furby, _, antenna in lines:
-            if antenna:
-                await furby.set_antenna((0, 0, 0))
+        try:
+            for i, (furby, info, light, name) in enumerate(lines):
+                if not await furby.play(info["action"]):
+                    self.log("%s skipped: %s stayed busy with its last sequence" % (parts[i], furby))
+                elif light:
+                    tasks.append(asyncio.create_task(self.light_line(furby, info, light, self.rest(name), stop)))
+            await self.sleep(max(line[1]["seconds"] for line in lines))
+        finally:
+            # However the step ends, even interrupted, every light stops and goes back to rest
+            stop.set()
+            for task in tasks:
+                try:
+                    await task
+                except Exception:
+                    pass
+            for furby, _, light, name in lines:
+                if light:
+                    await self.quietly(furby, self.rest(name))
         await self.sleep(self.plan["gap"])
 
     async def play_scene(self, scene):
         self.log("Scene: %s" % " -> ".join(scene))
+        names = sorted({p.split(".")[0] for step in scene for p in step_parts(step)})
         self.playing = True
         try:
+            # With [show] idle_glow, everyone in the scene glows dimly while the others speak
+            for name in names:
+                if self.plan["furbies"][name].get("idle") and name in self.furbies:
+                    await self.quietly(self.furbies[name], self.rest(name))
             for step in scene:
                 await self.play_step(step)
         finally:
             self.playing = False
+            for name in names:
+                furby = self.furbies.get(name)
+                if furby is not None and furby.antenna not in (None, OFF):
+                    await self.quietly(furby, OFF)
 
     async def wait(self, seconds):
         """Sleep, but wake early if trigger() is called; returns True if it was.

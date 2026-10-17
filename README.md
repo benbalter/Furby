@@ -437,7 +437,7 @@ The Furby stores DLCs under 8.3-style names (`____PINK.DLC`), so keep file names
 
 ## Customizing the Halloween show
 
-[`halloween/show.toml`](halloween/show.toml) describes the whole show: each Furby's clips, eyes and antenna color while it speaks, and the scenes that string the clips together. [`halloween.py`](halloween.py) builds a DLC per Furby from it, and [`porch.py`](porch.py) (or the ESP32) plays the scenes. Both use the same show engine, [`furbyshow.py`](furbyshow.py).
+[`halloween/show.toml`](halloween/show.toml) describes the whole show: each Furby's clips, their eyes and antenna lights (see [Antenna lights](#antenna-lights)), and the scenes that string the clips together. [`halloween.py`](halloween.py) builds a DLC per Furby from it, and [`porch.py`](porch.py) (or the ESP32) plays the scenes. Both use the same show engine, [`furbyshow.py`](furbyshow.py).
 
 - **Clips** can be anything ffmpeg reads, up to a few seconds each. A clip can also be a table that cuts a snippet, such as `{ path = "song.mp3", start = "0:08", seconds = 10 }`, which suits music; the bundled public-domain Toccata opening is one. Add `before = 0.4` to hold an extra beat before a clip, such as a punchline. Mark a clip `optional = true` to leave its scenes out until the file exists, as the show does for the Ghostbusters theme. Each clip gets its own `75` action in the DLC, chosen so no two actions share a track.
 - **Scenes** play their steps in order. Join clips with `+` in a step (`"pink.ghostbusters + blue.ghostbusters"`) to play them on both Furbies at once. Mark a scene `greeting = true` to save it for when someone arrives: Enter (or the ESP32's button or motion sensor) plays a greeting, the timer plays the other scenes, and `cooldown` in `[show]` ignores the motion sensor for a while after each greeting.
@@ -456,6 +456,23 @@ With no computer on the night, an ESP32-S3 board running MicroPython on a USB po
 3. Power the board up first, then the Furbies one at a time, as when running from a computer.
 
 The board starts the show on power-up, keeps both Furbies awake, plays a random scene every 20 to 45 seconds, and plays a greeting right away when you press its button. To greet trick-or-treaters as they walk up, wire a PIR motion sensor (such as an HC-SR501) to a free GPIO and set `PIR_PIN` at the top of [`firmware/main.py`](firmware/main.py). Its LED stays on during a scene and blinks while a Furby is missing. A watchdog reboots it if the show ever hangs. Hold the button while plugging it in to skip the show.
+
+### Antenna lights
+
+While a Furby speaks, its antenna plays a light that matches the clip's eyes and moves with the sound. `halloween.py` measures each clip's loudness ten times a second and stores it in `show.json`, and the show engine updates the antenna from it while the line plays, so a cackle flickers and a scream flashes.
+
+| Eyes | Light |
+| --- | --- |
+| demon | red pulse, brighter on loud moments |
+| bloodshot | deep red that follows the voice |
+| storm | dim blue with white lightning flashes, more of them when loud |
+| pumpkin | orange candle flicker |
+| ghost | pale, slowly breathing wisp |
+| hypno | cycles through the colour wheel |
+
+Change it in [`halloween/show.toml`](halloween/show.toml) with `light` on a clip or a whole Furby: an effect (`off`, `steady`, `voice`, `candle`, `pulse`, `wisp`, `lightning`, `cycle`), an eye theme's name (`light = "ghost"`), or a table such as `light = { effect = "pulse", color = [0, 255, 0] }`. A Furby-wide `light = { color = [255, 0, 0] }` keeps one colour for all its lines, which makes it easier to tell who's talking. A Furby's `antenna` colour is only a fallback now, for lights with no colour of their own. In `[show]`, `light_hz` (default 10, at most 15) sets how often the antenna updates, and `idle_glow = 0.15` keeps each Furby in a scene glowing dimly while the other one speaks (off by default).
+
+`python porch.py --rehearse` draws each antenna as a coloured block in the terminal while the clips play, so you can tune lights without the Furbies. On the Furbies themselves, the light runs alongside each line and never delays a trigger, and the antenna goes dark when the line ends or a scene is cut short. Not yet checked on a real Furby: whether the antenna dims smoothly or only switches colour, and whether 10 updates a second interferes with playback. If lines stutter, lower `light_hz`; if dimmed colours look wrong, use `light = "steady"`.
 
 ## License
 

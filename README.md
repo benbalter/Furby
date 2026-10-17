@@ -20,11 +20,13 @@ On top of [Context's original tools](https://github.com/ctxis/Furby), this fork 
 
 ## Requirements
 
-This project requires Python 3.11 or later. Install dependencies with:
+This project requires Python 3.11 or later and uses [uv](https://docs.astral.sh/uv/), which installs the dependencies listed in [`pyproject.toml`](pyproject.toml) the first time you run a script:
 
 ```bash
-pip install -r requirements.txt
+uv run halloween.py
 ```
+
+The examples below say `python script.py`; run them as `uv run script.py`, or run `uv sync` once and activate `.venv`.
 
 ## Testing
 
@@ -314,7 +316,7 @@ You need two Furby Connects with their DLCs flashed, and something to run the sh
 2. Build both DLCs: `python halloween.py` writes `build/halloween/pink.dlc`, `blue.dlc` and `show.json`. Each clip gets its own `75` action, chosen so no two actions share a track.
 3. Flash `pink.dlc` to one Furby and `blue.dlc` to the other ([see above](#flashing-a-dlc)). Keep the file names: the show tells the Furbies apart by the name of their active DLC.
 4. Run the show. Both ways use the same show engine, [`furbyshow.py`](furbyshow.py):
-   - **From a computer:** `python porch.py` (needs [bleak](https://github.com/hbldh/bleak)); press Enter to play a greeting. `python porch.py --clip pink.cackle` plays one clip to test.
+   - **From a computer:** `python porch.py`; press Enter to play a greeting. `python porch.py --clip pink.cackle` plays one clip to test.
    - **Rehearse first, with no Furbies:** `python porch.py --rehearse` plays every scene through your computer's speakers with the show's timing (`--scene 2` or `--clip pink.boo` for just one), so you can tune lines and scenes before flashing anything.
    - **From an ESP32, with no computer:** flash [MicroPython](https://micropython.org/download/ESP32_GENERIC_S3/) to the board (for the FireBeetle's 8 MB of octal PSRAM, the `SPIRAM_OCT` build), then run `firmware/deploy.sh` (needs [uv](https://docs.astral.sh/uv/)). It installs [aioble](https://github.com/micropython/micropython-lib/tree/master/micropython/bluetooth/aioble) and copies the show over. The board starts the show on power-up, keeps both Furbies awake, plays a random scene every 20 to 45 seconds, and plays a greeting right away when you press its button. To greet trick-or-treaters as they walk up, wire a PIR motion sensor (such as an HC-SR501) to a free GPIO and set `PIR_PIN` at the top of [`firmware/main.py`](firmware/main.py). Its LED stays on during a scene and blinks while a Furby is missing. A watchdog reboots it if the show ever hangs. Hold the button while plugging it in to skip the show. After changing the show, reflash both Furbies and run `deploy.sh` again; the show warns if a Furby's DLC doesn't match.
 

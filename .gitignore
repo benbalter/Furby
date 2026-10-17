@@ -4,3 +4,4 @@ dlc
 bluefluff
 audio/new_audio/*.mp3
 /build/
+.venv/

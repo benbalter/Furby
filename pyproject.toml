@@ -1,5 +1,24 @@
 # SPDX-FileCopyrightText: 2026 Ben Balter
 # SPDX-License-Identifier: MIT
+
+# Not a package, just the scripts' dependencies: `uv run porch.py` (or any
+# script) installs them into .venv from uv.lock.
+[project]
+name = "furby"
+version = "0"
+requires-python = ">=3.11"  # halloween.py uses tomllib
+dependencies = [
+    "a1800-codec",
+    "bleak",  # porch.py's Bluetooth
+    "pillow",
+]
+
+[dependency-groups]
+dev = ["ruff"]
+
+[tool.uv]
+package = false
+
 # Lint config for the files this fork adds. Context's original files
 # (furby.py, demo*.py, minify_dlc.py and the older audioutils scripts) keep
 # their own style, so they're excluded rather than reformatted.

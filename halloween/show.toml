@@ -16,9 +16,10 @@ cooldown = 20       # seconds after a scene when the button or motion sensor is 
 # Eyes: each clip shows one eye animation, from its Furby's eyes list (below).
 # Preview them all with: uv run spooky_eyes.py --preview (writes build/eyes/).
 eye_frames = 38            # frames per eye animation: 38 is the stock length; up to 95
-one_eye_animation = false  # true: every clip shows its Furby's first eyes, the one layout
-                           # tested on a Furby. Use it if uv run spooky_eyes.py --probe
-                           # shows that a second animation (0x8402) doesn't play.
+one_eye_animation = true   # every clip shows its Furby's first eyes: one animation, the
+                           # only layout that has shown on a Furby. Set false once the
+                           # eyesj probe (uv run spooky_eyes.py --probe) shows 0x8402 playing;
+                           # a second theme fits each Furby's DLC, a third doesn't.
 # Antenna light: while a Furby speaks, its antenna plays its clip's eyes'
 # light, which swells with the sound: demon = red pulse, bloodshot = deep red,
 # storm = blue glow with white lightning, pumpkin = orange candle flicker,
@@ -35,8 +36,8 @@ idle_glow = 0   # e.g. 0.15: in a scene, a Furby glows this dimly while the othe
 [furbies.pink]
 # Clips take turns through these, in clip-name order; give a clip its own with
 # eyes = "storm" in its table. The first is the main one. Each theme costs
-# about 37 KB of the DLC. Themes: demon, pumpkin, storm, bloodshot, ghost, hypno.
-eyes = ["demon", "bloodshot", "storm"]
+# about 74 KB of the DLC (each eye has its own copy). Themes: demon, pumpkin, storm, bloodshot, ghost, hypno.
+eyes = ["demon", "storm"]  # a third theme (bloodshot) would push the DLC over the upload limit
 antenna = [255, 0, 0]  # fallback antenna color (red, green, blue), for a light with none
 
 [furbies.pink.clips]
@@ -63,7 +64,7 @@ ghostbusters = { path = "build/music/ghostbusters.mp3", start = "0:11", seconds 
 
 # Blue is the good Furby: jack-o'-lantern eyes, friendly lines that undercut pink.
 [furbies.blue]
-eyes = ["pumpkin", "ghost", "hypno"]
+eyes = ["pumpkin", "ghost"]  # hypno is the other option
 antenna = [255, 100, 0]
 
 [furbies.blue.clips]

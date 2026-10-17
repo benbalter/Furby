@@ -138,11 +138,14 @@ def missing_clips(r, missing):
     for kind, clips in groups.items():
         names = ", ".join(c for c, _ in clips)
         if kind == "sfx":
-            queries = sorted({os.path.basename(p).rsplit("-", 1)[0].replace("-", " ") for _, p in clips})
+            stems = [os.path.splitext(os.path.basename(p))[0].rsplit("-", 1) for _, p in clips]
+            queries = sorted({stem[0].replace("-", " ") for stem in stems})
+            most = max((int(stem[1]) + 1 for stem in stems if len(stem) == 2 and stem[1].isdigit()), default=0)
+            count = " --count %d" % most if most > 3 else ""  # freesound_fetch.py fetches 3 per search
             r.fail(
                 "Sound effects missing: %s." % names,
                 "Fetch them (needs a free Freesound API key in FREESOUND_API_KEY): "
-                "uv run audioutils/freesound_fetch.py %s" % " ".join('"%s"' % q for q in queries),
+                "uv run audioutils/freesound_fetch.py%s %s" % (count, " ".join('"%s"' % q for q in queries)),
             )
         elif kind == "voice":
             r.fail("Furby voice clips missing: %s." % names, "Unpack them: uv run audioutils/extract_voice.py")

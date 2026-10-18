@@ -188,6 +188,13 @@ class TestCustomEyes(unittest.TestCase):
         if os.path.exists(self.temp_dir):
             shutil.rmtree(self.temp_dir)
 
+    def test_theme_cost(self):
+        """THEME_BYTES, which the size hints, show.toml and README quote, matches what a second theme adds"""
+        import spooky_eyes
+        one = spooky_eyes.build("demon", out_dir=self.temp_dir, name="one")
+        two = spooky_eyes.build("demon", out_dir=self.temp_dir, name="two", eyes={(75, 0, 4, 4): "storm"})
+        self.assertAlmostEqual(os.path.getsize(two) - os.path.getsize(one), spooky_eyes.THEME_BYTES, delta=1000)
+
     def test_demo_eyes(self):
         """Context's demo builds: palettes, both GIF frames, and SEQ edits"""
         import demo
@@ -484,6 +491,74 @@ class TestHalloween(unittest.TestCase):
         self.assertIn("--only pink", msg)
         new = {"furbies": {"pink": {"checksum": 9}, "blue": {"checksum": 8}}, "scenes": []}
         self.assertIn("pink.dlc and blue.dlc changed: reflash both", halloween.changes_message(old, new))
+
+    def test_show_toml_mistakes(self):
+        """A typo or a bad value in show.toml fails at once, saying where, rather than quietly doing nothing"""
+        import halloween
+
+        def load(furbies, show='gap = 0.5\nevery = [20, 45]'):
+            path = os.path.join(self.temp_dir, "show.toml")
+            with open(path, "w") as f:
+                f.write('[show]\n%s\n%s\n[[scenes]]\nsteps = ["pink.a"]\n' % (show, furbies))
+            return halloween.load_show(path)
+
+        good = '[furbies.pink.clips]\na = { path = "a.wav", start = 11, seconds = 2 }\n'
+        self.assertEqual(load(good)["furbies"]["pink"]["clips"]["a"]["start"], 11)  # left as written...
+        self.assertEqual(halloween.clip_spec({"path": "a.wav", "start": 11})["start"], "11")  # ...and read as text
+        for furbies, show, message in (
+            ('[furbies.Pink.clips]\na = "a.wav"\n', None, "'Pink' won't work as a DLC name"),
+            ('[furbies.pink.clips]\na = { path = "a.wav", secconds = 2 }\n', None, "did you mean 'seconds'"),
+            ('[furbies.pink.clips]\na = { path = "a.wav", seconds = -1 }\n', None, "clips.a seconds"),
+            ('[furbies.pink.clips]\na = { path = "a.a18", seconds = 2 }\n', None, "an .a18 can't be cut"),
+            ('[furbies.pink.clips]\na = { start = "1:00" }\n', None, "clips.a needs a path"),
+            ('[furbies.pink]\nlight = { color = [300, 0, 0] }\n[furbies.pink.clips]\na = "a.wav"\n', None, "0-255"),
+            ('[furbies.pink]\nlight = { colour = [255, 0, 0] }\n[furbies.pink.clips]\na = "a.wav"\n', None,
+             "did you mean 'color'"),
+            ('[furbies.pink]\nantenna = [255, 0, 0]\n', None, "needs clips"),
+            (good, "gap = 0.5\nevery = [45, 20]", "[shortest, longest]"),
+            (good, "gap = 0.5\nevery = [20, 45]\ncooldwn = 5", "did you mean 'cooldown'"),
+            (good, "every = [20, 45]", "gap should be a number"),
+        ):
+            with self.subTest(message=message):
+                with self.assertRaises(SystemExit) as e:
+                    load(furbies, *([show] if show else []))
+                self.assertIn(message, str(e.exception))
+        # voices.py reads a show.toml with no [show]; only the build needs it
+        path = os.path.join(self.temp_dir, "voices.toml")
+        with open(path, "w") as f:
+            f.write(good + '[[scenes]]\nsteps = ["pink.a"]\n')
+        show = halloween.load_show(path)
+        with self.assertRaises(SystemExit) as e:
+            halloween.build_show(show, self.temp_dir)
+        self.assertIn("needs a [show] table", str(e.exception))
+
+    def test_failed_build_keeps_the_last_good_one(self):
+        """If one Furby's DLC fails to build, neither DLC nor show.json changes"""
+        import halloween
+        clip = "./audio/new_audio/darkside_wav.a18"
+        show = {
+            "show": {"gap": 0.5, "every": [30, 60]},
+            "furbies": {"pink": {"eyes": ["demon"], "clips": {"a": clip}},
+                        "blue": {"eyes": ["pumpkin"], "clips": {"b": clip}}},
+            "scenes": [{"steps": ["pink.a", "blue.b"]}],
+        }
+        halloween.build_show(show, self.temp_dir)
+        names = ("pink.dlc", "blue.dlc", "show.json")
+
+        def contents():
+            out = {}
+            for name in names:
+                with open(os.path.join(self.temp_dir, name), "rb") as f:
+                    out[name] = f.read()
+            return out
+
+        before = contents()
+        show["furbies"]["pink"]["eyes"] = ["storm"]  # pink's DLC would change...
+        show["furbies"]["blue"]["eyes"] = ["no-such-theme"]  # ...but blue's can't build
+        with self.assertRaises(SystemExit):
+            halloween.build_show(show, self.temp_dir)
+        self.assertEqual(contents(), before)
+        self.assertEqual([f for f in os.listdir(self.temp_dir) if f.endswith(".tmp")], [])
 
     def test_build_show_with_lock(self):
         """With a lock, adding a clip to one Furby leaves the other's DLC alone and moves no clip"""
@@ -2399,11 +2474,18 @@ class TestDoctor(unittest.TestCase):
         plan = {"furbies": {"pink": {"checksum": 1}, "blue": {"checksum": 2}}}
         r = self.report()
         asyncio.run(doctor.check_furbies(r, plan, find))
-        self.assertEqual(r.failures, 2)  # probe.dlc isn't in the show, and blue is nowhere
+        self.assertEqual(r.failures, 1)  # probe.dlc isn't in the show
         self.assertTrue(all(f.disconnected for f in found))
         text = "\n".join(self.lines)
         self.assertIn("✅ pink", text)
-        self.assertIn("one at a time", text)
+        self.assertIn("Didn't see blue", text)  # checked one at a time, so only a note
+        self.assertIn("wake only blue", text)
+        # With nobody awake, that's a failure
+        found.clear()
+        r = self.report()
+        asyncio.run(doctor.check_furbies(r, plan, find))
+        self.assertEqual(r.failures, 1)
+        self.assertIn("Wake only one", "\n".join(self.lines))
 
     def test_missing_packages(self):
         import doctor

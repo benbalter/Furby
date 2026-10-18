@@ -52,6 +52,7 @@ SCALE = 4  # draw big, then shrink, for smooth edges
 COLOURS = 63  # palette index 0 is kept transparent, as in the stock palettes
 MAX_UPLOAD = 350_000  # bigger DLCs time out mid-upload
 FRAMES = 38  # frames per animation: the stock animation's length, the only one tested on a Furby
+THEME_BYTES = 78_900  # what each eye theme after the first adds to a DLC at FRAMES frames (measured)
 MAX_FRAMES = 95  # the longest animation in the firmware's own eye files
 FRAME_MS = 66  # preview speed only: a guess (furby-connect-eyes-extract's), not measured on a Furby
 FIRST_ANIMATION = 0x8401  # eye word for the DLC's animation 1; 0x8402 is animation 2, and so on
@@ -529,8 +530,9 @@ def build(
     name=None,
     eyes=None,
     frames=FRAMES,
+    dlc_out=None,
 ):
-    """Build the DLC; returns its path.
+    """Build the DLC; returns its path (dlc_out, or <name>.dlc in out_dir).
 
     clips: {action code: audio file}, each played with the eyes. Use actions
     from scene_slots() so no clip plays under another action.
@@ -560,9 +562,10 @@ def build(
         D.replace_audio(code, [_a18(clip, work_dir)])
         D.trigger_custom_graphics(code, words[eyes.get(code, theme)])
 
-    dlc_out = os.path.join(out_dir, "%s.dlc" % (name or "spooky_%s" % theme))
+    dlc_out = dlc_out or os.path.join(out_dir, "%s.dlc" % (name or "spooky_%s" % theme))
     D.build(dlc_out)
-    size = _check_size(dlc_out, "Use shorter or fewer clips, or fewer eye themes (each costs about 74 KB).")
+    hint = "Use shorter or fewer clips, or fewer eye themes (each costs about %d KB)." % (THEME_BYTES // 1000)
+    size = _check_size(dlc_out, hint)
     built = dlc(dlc_out)
     for t, w in words.items():
         save_preview(render(built, w), os.path.join(work_dir, "eyes_%s.gif" % t))

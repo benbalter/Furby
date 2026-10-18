@@ -30,6 +30,7 @@ apart by the name of the DLC each has active, so keep the file names.
 """
 
 import argparse
+import difflib
 import json
 import math
 import os
@@ -41,9 +42,10 @@ from array import array
 
 import a1800_codec
 
+from flash import check_name
 from furby import dlc
 from furbyshow import EFFECTS, ENVELOPE_HZ, LIGHT_HZ, LIGHT_MAX_HZ, scale, step_parts
-from spooky_eyes import FRAMES, MAX_UPLOAD, MIXES, _tracks, build, scene_slots
+from spooky_eyes import FRAMES, MAX_UPLOAD, MIXES, THEME_BYTES, _tracks, build, scene_slots
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "audioutils"))
 from encode_a18 import encode  # noqa: E402
@@ -65,6 +67,13 @@ THEME_LIGHTS = {
 # -36 speech sat at 7-9 throughout; -24 lets syllables show.
 QUIETEST_DB = -24
 GP_HEADER, GP_HEADER_SIZE = b"\x00\xff\x00\xffGENERALPLUS", 0x30
+# What show.toml can set, so a misspelled setting fails instead of quietly doing nothing
+SHOW_KEYS = {"show", "furbies", "scenes"}
+SETTINGS = {"gap", "every", "cooldown", "eye_frames", "one_eye_animation", "light_hz", "idle_glow"}
+FURBY_KEYS = {"clips", "eyes", "theme", "antenna", "light", "voice", "espeak"}  # voice and espeak are voices.py's
+CLIP_KEYS = {"path", "start", "seconds", "before", "optional", "eyes", "light", "text"}
+LIGHT_KEYS = {"effect", "color"}
+SCENE_KEYS = {"steps", "greeting"}
 
 
 def quick_slots(D):
@@ -80,9 +89,63 @@ def quick_slots(D):
     return [c for c in scene_slots(D) if seqs[tree[c[0]][c[1]][c[2]][c[3]]["seq"]][2] >> 12 != DLC_MOTOR]
 
 
+def check_keys(table, allowed, where):
+    """Fail on a setting show.toml doesn't use, which is most likely a typo that would quietly do nothing."""
+    if not isinstance(table, dict):
+        raise SystemExit("%s should be a table, not %r" % (where, table))
+    for key in table:
+        if key not in allowed:
+            close = difflib.get_close_matches(key, allowed, 1)
+            raise SystemExit(
+                "%s: unknown setting %r%s. The settings here are: %s."
+                % (where, key, " (did you mean %r?)" % close[0] if close else "", ", ".join(sorted(allowed)))
+            )
+
+
+def check_seconds(value, where, zero=False):
+    """A number of seconds from show.toml: above 0, or 0 and up if zero is allowed."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0 or (value == 0 and not zero):
+        raise SystemExit("%s should be a number of seconds%s, not %r" % (where, " (0 or more)" if zero else "", value))
+    return value
+
+
+def check_settings(settings, where="[show]"):
+    """show.toml's [show] table: known settings, a gap, and every as [shortest, longest]."""
+    check_keys(settings, SETTINGS, where)
+    check_seconds(settings.get("gap"), "%s gap" % where, zero=True)
+    every = settings.get("every")
+    if not (isinstance(every, list) and len(every) == 2):
+        raise SystemExit("%s every should be [shortest, longest] seconds between scenes, not %r" % (where, every))
+    for n in every:
+        check_seconds(n, "%s every" % where)
+    if every[0] > every[1]:
+        raise SystemExit("%s every should be [shortest, longest], not %r" % (where, every))
+
+
 def load_show(path="./halloween/show.toml"):
+    """show.toml, checked: misspelled settings, bad names and missing tables fail here with where they are."""
     with open(path, "rb") as f:
         show = tomllib.load(f)
+    check_keys(show, SHOW_KEYS, path)
+    if not isinstance(show.get("furbies"), dict):
+        raise SystemExit("%s needs a [furbies.<name>] table for each Furby; see halloween/show.toml" % path)
+    if "show" in show:  # voices.py doesn't need it; build_show() checks it's there
+        check_settings(show["show"], "%s [show]" % path)
+    for name, furby in show["furbies"].items():
+        where = "%s [furbies.%s]" % (path, name)
+        check_name(name, where)
+        check_keys(furby, FURBY_KEYS, where)
+        if not isinstance(furby.get("clips"), dict) or not furby["clips"]:
+            raise SystemExit("%s needs clips: a [furbies.%s.clips] table with at least one clip" % (where, name))
+        for clip, value in furby["clips"].items():
+            clip_spec(value, "%s clips.%s" % (where, clip))
+        light_spec(furby.get("light"), "%s light" % where)
+    if not isinstance(show.get("scenes"), list):
+        raise SystemExit("%s has no scenes: add a [[scenes]] table with steps = [...]" % path)
+    for i, scene in enumerate(show["scenes"]):
+        check_keys(scene, SCENE_KEYS, "%s scene %d" % (path, i))
+        if not isinstance(scene.get("steps"), list) or not all(isinstance(s, str) for s in scene["steps"]):
+            raise SystemExit('%s scene %d needs steps = ["pink.clip", ...]' % (path, i))
     for scene in show["scenes"]:
         for step in scene["steps"]:
             for part in step_parts(step):
@@ -97,13 +160,28 @@ def load_show(path="./halloween/show.toml"):
     return show
 
 
-def clip_spec(value):
+def clip_spec(value, where="a clip"):
     """A clip from show.toml: a path, or a table with path and optional start, seconds, before and optional.
 
     A table can also have text, the words of a voice line, which voices.py reads;
-    it doesn't change the build.
+    it doesn't change the build. where names the clip in an error.
     """
+    if not isinstance(value, (str, dict)):
+        raise SystemExit('%s should be a path or a table such as { path = "..." }, not %r' % (where, value))
     spec = {"path": value} if isinstance(value, str) else dict(value)
+    check_keys(spec, CLIP_KEYS, where)
+    if not isinstance(spec.get("path"), str):
+        raise SystemExit('%s needs a path, e.g. { path = "build/cloned/line.wav" }' % where)
+    if isinstance(spec.get("start"), (int, float)) and not isinstance(spec["start"], bool):
+        spec["start"] = str(spec["start"])  # ffmpeg takes seconds as text, like "1:05" or "12.5"
+    elif "start" in spec and not isinstance(spec["start"], str):
+        raise SystemExit('%s start should be a time such as "1:05" or 12.5, not %r' % (where, spec["start"]))
+    if "seconds" in spec:
+        check_seconds(spec["seconds"], "%s seconds" % where)
+    if "before" in spec:
+        check_seconds(spec["before"], "%s before" % where, zero=True)
+    if spec["path"].endswith(".a18") and (spec.get("start") or spec.get("seconds")):
+        raise SystemExit("%s: an .a18 can't be cut with start or seconds; cut the original audio instead" % where)
     spec.setdefault("optional", False)
     return spec
 
@@ -133,7 +211,17 @@ def light_spec(value, where):
         return {}
     if isinstance(value, str):
         value = dict(THEME_LIGHTS[value]) if value in THEME_LIGHTS else {"effect": value}
+    if not isinstance(value, dict):
+        raise SystemExit('%s should be an effect name or a table such as { effect = "pulse" }, not %r' % (where, value))
     spec = dict(value)
+    check_keys(spec, LIGHT_KEYS, where)
+    color = spec.get("color")
+    if "color" in spec and not (
+        isinstance(color, list)
+        and len(color) == 3
+        and all(isinstance(c, int) and not isinstance(c, bool) and 0 <= c <= 255 for c in color)
+    ):
+        raise SystemExit("%s color should be [red, green, blue], each 0-255, not %r" % (where, color))
     if spec.get("effect", "steady") not in EFFECTS:
         raise SystemExit(
             "%s: unknown light %r. Use an effect (%s) or an eye theme (%s)."
@@ -410,7 +498,7 @@ def budget_report(name, budget, unused=(), verbose=False, limit=None):
                 cut.append("drop %s (%s KB)" % (k, _kb(clips[k])))
             excess -= clips[k]
         lines.append("  Too big to upload. To fit: %s." % "; or ".join([", ".join(cut)] + (
-            ["drop an eye theme (each about 37 KB)"] if len(themes) > 1 else [])))  # fmt: skip
+            ["drop an eye theme (each about %s KB)" % _kb(THEME_BYTES)] if len(themes) > 1 else [])))  # fmt: skip
     elif total > 0.9 * limit:
         lines.append("  Warning: over 90%% of the %s KB upload limit. Shorten a clip before adding any." % _kb(limit))
     return "\n".join(lines)
@@ -431,6 +519,9 @@ def build_show(
     keeps its action from build to build. None assigns slots afresh in name order.
     reshuffle: ignore the lock and start it again.
     """
+    if not isinstance(show.get("show"), dict):
+        raise SystemExit("show.toml needs a [show] table with gap and every; see halloween/show.toml in the repo")
+    check_settings(show["show"])
     os.makedirs(out_dir, exist_ok=True)
     slots = quick_slots(dlc(dlc_in))
     previous = read_json(os.path.join(out_dir, "show.json"))
@@ -452,76 +543,87 @@ def build_show(
         "scenes": [],
         "greetings": [],
     }
-    for name, furby in show["furbies"].items():
-        specs = {k: clip_spec(v) for k, v in furby["clips"].items()}
-        clips = {k: v for k, v in specs.items() if os.path.exists(v["path"])}
-        for k in sorted(set(specs) - set(clips)):
-            if specs[k]["optional"]:
-                print("%s.%s: no %s yet, so scenes using it are left out." % (name, k, specs[k]["path"]))
-        missing = sorted(k for k in set(specs) - set(clips) if not specs[k]["optional"])
-        if missing and not skip_missing:
-            raise SystemExit(
-                "%s is missing clips: %s. Make them, or pass --skip-missing to build without them."
-                % (name, ", ".join("%s (%s)" % (m, specs[m]["path"]) for m in missing))
-            )
-        if len(clips) > len(slots):
-            raise SystemExit("%s has %d clips; a DLC has room for %d." % (name, len(clips), len(slots)))
-        work_dir = os.path.join(out_dir, name)
-        os.makedirs(work_dir, exist_ok=True)
-        a18 = {k: encode_clip(k, v, work_dir) for k, v in clips.items()}
-        codes, lock["furbies"][name] = assign_slots(lock["furbies"].get(name), specs, clips, slots, name)
-        if set(a18) - set(codes):
-            raise SystemExit(
-                "%s: no free slot for %s, since clips that aren't built yet hold them. Remove some clips from "
-                "show.toml, or pass --reshuffle." % (name, ", ".join(sorted(set(a18) - set(codes))))
-            )
-        codes = {k: codes[k] for k in a18}
-        theme, eyes = clip_eyes(furby, clips, show["show"].get("one_eye_animation", False))
-        themes = [theme] + sorted(set(eyes.values()) - {theme})  # the order spooky_eyes.build() installs them
-        unused = {k for k in a18 if "%s.%s" % (name, k) not in used}
-        try:
-            dlc_out = build(
-                theme,
-                clips={codes[k]: a18[k] for k in a18},
-                dlc_in=dlc_in,
-                out_dir=out_dir,
-                name=name,
-                eyes={codes[k]: eyes[k] for k in a18},
-                frames=show["show"].get("eye_frames", FRAMES),
-            )
-        except SystemExit:  # too big to upload: say what to cut
-            too_big = os.path.join(out_dir, "%s.dlc" % name)
-            if os.path.exists(too_big) and os.path.getsize(too_big) > MAX_UPLOAD:
-                print(budget_report(name, dlc_budget(too_big, codes, themes), unused, verbose))
-            raise
-        reports.append(budget_report(name, dlc_budget(dlc_out, codes, themes), unused, verbose))
-        with open(dlc_out, "rb") as f:
-            checksum = zlib.adler32(f.read())  # the Furby reports this for its active DLC
-        lights = {k: clip_light(name, furby, k, eyes[k], clips[k]) for k in a18}
-        # Only effects that change with the sound need its envelope
-        envelopes = {k: envelope(a18[k]) for k in a18 if lights[k] and lights[k]["effect"] != "steady"}
-        main = clip_light(name, furby, None, theme, {})  # the main eyes' light, for the idle glow
-        plan["furbies"][name] = {
-            "checksum": checksum,
-            "antenna": furby.get("antenna"),
-            **({"idle": list(scale(main["color"], idle_glow))} if idle_glow and main else {}),
-            "clips": {
-                k: {
-                    "action": list(codes[k]),
-                    "eyes": eyes[k],
-                    "light": lights[k] or {"effect": "off"},
-                    # Only effects that change with the sound need it
-                    **({"envelope": envelopes[k]} if envelopes.get(k) else {}),
-                    "seconds": round((os.path.getsize(a18[k]) - 6) / A18_BYTES_PER_SECOND, 2),
-                    # porch.py --rehearse plays this: just the snippet when the clip is cut
-                    "source": preview_clip(k, clips[k], work_dir)
-                    if clips[k].get("start") or clips[k].get("seconds")
-                    else clips[k]["path"],
-                    **({"before": clips[k]["before"]} if clips[k].get("before") else {}),
-                }
-                for k in sorted(a18)
-            },
-        }
+    # Each DLC is built beside the last good one and moved into place only once
+    # every Furby has built, so a failed build leaves the flashed show intact
+    staged = {}
+    try:
+        for name, furby in show["furbies"].items():
+            specs = {k: clip_spec(v) for k, v in furby["clips"].items()}
+            clips = {k: v for k, v in specs.items() if os.path.exists(v["path"])}
+            for k in sorted(set(specs) - set(clips)):
+                if specs[k]["optional"]:
+                    print("%s.%s: no %s yet, so scenes using it are left out." % (name, k, specs[k]["path"]))
+            missing = sorted(k for k in set(specs) - set(clips) if not specs[k]["optional"])
+            if missing and not skip_missing:
+                raise SystemExit(
+                    "%s is missing clips: %s. Make them, or pass --skip-missing to build without them."
+                    % (name, ", ".join("%s (%s)" % (m, specs[m]["path"]) for m in missing))
+                )
+            if len(clips) > len(slots):
+                raise SystemExit("%s has %d clips; a DLC has room for %d." % (name, len(clips), len(slots)))
+            work_dir = os.path.join(out_dir, name)
+            os.makedirs(work_dir, exist_ok=True)
+            a18 = {k: encode_clip(k, v, work_dir) for k, v in clips.items()}
+            codes, lock["furbies"][name] = assign_slots(lock["furbies"].get(name), specs, clips, slots, name)
+            if set(a18) - set(codes):
+                raise SystemExit(
+                    "%s: no free slot for %s, since clips that aren't built yet hold them. Remove some clips from "
+                    "show.toml, or pass --reshuffle." % (name, ", ".join(sorted(set(a18) - set(codes))))
+                )
+            codes = {k: codes[k] for k in a18}
+            theme, eyes = clip_eyes(furby, clips, show["show"].get("one_eye_animation", False))
+            themes = [theme] + sorted(set(eyes.values()) - {theme})  # the order spooky_eyes.build() installs them
+            unused = {k for k in a18 if "%s.%s" % (name, k) not in used}
+            staged[name] = os.path.join(out_dir, "%s.dlc.tmp" % name)
+            try:
+                dlc_out = build(
+                    theme,
+                    clips={codes[k]: a18[k] for k in a18},
+                    dlc_in=dlc_in,
+                    out_dir=out_dir,
+                    name=name,
+                    dlc_out=staged[name],
+                    eyes={codes[k]: eyes[k] for k in a18},
+                    frames=show["show"].get("eye_frames", FRAMES),
+                )
+            except SystemExit:  # too big to upload: say what to cut
+                too_big = staged[name]
+                if os.path.exists(too_big) and os.path.getsize(too_big) > MAX_UPLOAD:
+                    print(budget_report(name, dlc_budget(too_big, codes, themes), unused, verbose))
+                raise
+            reports.append(budget_report(name, dlc_budget(dlc_out, codes, themes), unused, verbose))
+            with open(dlc_out, "rb") as f:
+                checksum = zlib.adler32(f.read())  # the Furby reports this for its active DLC
+            lights = {k: clip_light(name, furby, k, eyes[k], clips[k]) for k in a18}
+            # Only effects that change with the sound need its envelope
+            envelopes = {k: envelope(a18[k]) for k in a18 if lights[k] and lights[k]["effect"] != "steady"}
+            main = clip_light(name, furby, None, theme, {})  # the main eyes' light, for the idle glow
+            plan["furbies"][name] = {
+                "checksum": checksum,
+                "antenna": furby.get("antenna"),
+                **({"idle": list(scale(main["color"], idle_glow))} if idle_glow and main else {}),
+                "clips": {
+                    k: {
+                        "action": list(codes[k]),
+                        "eyes": eyes[k],
+                        "light": lights[k] or {"effect": "off"},
+                        # Only effects that change with the sound need it
+                        **({"envelope": envelopes[k]} if envelopes.get(k) else {}),
+                        "seconds": round((os.path.getsize(a18[k]) - 6) / A18_BYTES_PER_SECOND, 2),
+                        # porch.py --rehearse plays this: just the snippet when the clip is cut
+                        "source": preview_clip(k, clips[k], work_dir)
+                        if clips[k].get("start") or clips[k].get("seconds")
+                        else clips[k]["path"],
+                        **({"before": clips[k]["before"]} if clips[k].get("before") else {}),
+                    }
+                    for k in sorted(a18)
+                },
+            }
+    except BaseException:
+        for tmp in staged.values():
+            if os.path.exists(tmp):
+                os.remove(tmp)
+        raise
     for scene in show["scenes"]:
         parts = [p.split(".") for step in scene["steps"] for p in step_parts(step)]
         playable = all(clip in plan["furbies"][furby]["clips"] for furby, clip in parts)
@@ -529,6 +631,8 @@ def build_show(
             plan["scenes"].append(scene["steps"])
             if scene.get("greeting"):
                 plan["greetings"].append(scene["steps"])
+    for name, tmp in staged.items():
+        os.replace(tmp, os.path.join(out_dir, "%s.dlc" % name))
     path = os.path.join(out_dir, "show.json")
     with open(path, "w") as f:
         json.dump(plan, f, indent=2)

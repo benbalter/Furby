@@ -6,14 +6,15 @@ Check that everything the Halloween show needs is in place, and say how to fix w
 
 USAGE:
     uv run doctor.py             # tools, Bluetooth, show.toml's clips, the built DLCs
-    uv run doctor.py --furbies   # also look for the Furbies (wake them first)
+    uv run doctor.py --furbies   # also check the awake Furby (wake one at a time)
 
 It checks, in order: Python and uv; ffmpeg; the Python packages; that this
 computer can scan for Bluetooth devices; that every clip in show.toml exists;
 that build/halloween has a DLC per Furby, small enough to upload and matching
-show.json; and, with --furbies, that each Furby is in range with the right
-DLC active. Each problem gets a ❌ and a one-line fix. It exits non-zero if
-anything needs fixing, so scripts can use it too.
+show.json; and, with --furbies, that the awake Furby has the right DLC
+active (wake one at a time: two awake together can't be found). Each problem
+gets a ❌ and a one-line fix. It exits non-zero if anything needs fixing, so
+scripts can use it too.
 """
 
 import argparse
@@ -268,10 +269,18 @@ async def check_furbies(r, plan, find=None):
             seen.add(furby.name)
         finally:
             await furby.disconnect()
-    for name in sorted(set(plan["furbies"]) - seen):
+    missing = sorted(set(plan["furbies"]) - seen)
+    if missing and seen:  # expected: check one Furby at a time
+        r.warn(
+            "Didn't see %s." % " or ".join(missing),
+            "To check it too, put %s to sleep (or take the batteries out), wake only %s, and run this again: "
+            "two awake together sing and stop answering" % (" and ".join(sorted(seen)), missing[0]),
+        )
+    elif missing:
         r.fail(
-            "Can't find %s." % name,
-            "Wake it, close FurBLE, and power the Furbies up one at a time: two awake together sing and stop answering",
+            "Can't find a Furby.",
+            "Wake only one (%s), close FurBLE, and run this again: two awake together sing and stop answering"
+            % " or ".join(missing),
         )
 
 
@@ -279,7 +288,7 @@ def main(argv=None, out=print):
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--toml", default="./halloween/show.toml")
     parser.add_argument("--build-dir", default="./build/halloween")
-    parser.add_argument("--furbies", action="store_true", help="also check the Furbies in range (wake them first)")
+    parser.add_argument("--furbies", action="store_true", help="also check the Furby that's awake (wake one at a time)")
     parser.add_argument("--no-bluetooth", action="store_true", help="skip the Bluetooth scan")
     args = parser.parse_args(argv)
     r = Report(out)
@@ -298,7 +307,7 @@ def main(argv=None, out=print):
     else:
         out("\nAll set%s." % (" (see the notes above)" if r.warnings else ""))
         if not args.furbies:
-            out("Wake the Furbies and run `uv run doctor.py --furbies` to check them too.")
+            out("Wake one Furby and run `uv run doctor.py --furbies` to check it too; then the other.")
     return 1 if r.failures else 0
 
 

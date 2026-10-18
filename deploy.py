@@ -233,9 +233,10 @@ class Deployer:
                 )
             except (RuntimeError, TimeoutError) as e:
                 raise DeployError(
-                    "Flashing %s failed: %s. Its antenna is red. Reset it (hold it upside down, hold the "
-                    "tongue and pull the tail until the eyes go dark), then run: "
-                    "uv run deploy.py --no-build --only %s (add --packet-delay 30 if it timed out)." % (name, e, name)
+                    "Flashing %s failed: %s. Its antenna is red. Run it again with: "
+                    "uv run deploy.py --no-build --only %s (add --packet-delay 30 if it timed out). If it fails "
+                    "again, reset the Furby (hold it upside down, hold the tongue and pull the tail until the "
+                    "eyes go dark) and retry." % (name, e, name)
                 ) from e
             self.flashed[name] = furby.address
             self.results[name] = "flashed %s.dlc, checksum %#x" % (name, zlib.adler32(data))

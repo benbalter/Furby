@@ -60,6 +60,13 @@ def slots(info):
     return [s for s in range(14) if filled & (1 << s)], [s for s in range(14) if active & (1 << s)]
 
 
+CHECKSUM_READS = 4  # times to read a fresh upload's checksum, a second apart
+
+
+class ChecksumMismatch(RuntimeError):
+    """The stored DLC's checksum isn't the file's."""
+
+
 class Flasher:
     """Uploads over a connected client with bleak's write_gatt_char/start_notify."""
 
@@ -70,6 +77,7 @@ class Flasher:
         self.replies = asyncio.Queue()
         self.unacked = 0
         self.caught_up = asyncio.Event()  # set while the Furby's buffer has room
+        self.recheck_s = 1.0  # between reads of a fresh upload's checksum
 
     async def start(self):
         await self.client.start_notify(furbyshow.GP_LISTEN, lambda _, d: self.replies.put_nowait(bytes(d)))
@@ -147,10 +155,17 @@ class Flasher:
         slot = new[0]
         for old in active:
             await self.ask([0x62, old], [0xDC])
-        info = await self.ask([0x73, slot], [0x73, slot])
-        stored = furbyshow.slot_checksum(info)
-        if stored != checksum:
-            raise RuntimeError("stored checksum %#x doesn't match the file's %#x" % (stored, checksum))
+        # Once, on a real Furby, a fresh upload of the right size reported the
+        # previous DLC's checksum straight after FileReceivedOk, so look again
+        # before calling it a mismatch.
+        for _ in range(CHECKSUM_READS):
+            info = await self.ask([0x73, slot], [0x73, slot])
+            stored = furbyshow.slot_checksum(info)
+            if stored == checksum:
+                break
+            await asyncio.sleep(self.recheck_s)
+        else:
+            raise ChecksumMismatch("stored checksum %#x doesn't match the file's %#x" % (stored, checksum))
         await self.ask([0x60, slot], [0xDC])
         await self.ask([0x61], [0xDC])
         if furbyshow.active_slot(await self.ask(furbyshow.DLC_INFO, furbyshow.DLC_INFO)) != slot:
@@ -161,9 +176,16 @@ class Flasher:
         checksum = zlib.adler32(data)
         await self.start()
         try:
-            await self.clear_slots()
-            await self.upload(data, filename)
-            await self.activate(checksum)
+            for attempt in range(2):
+                await self.clear_slots()
+                await self.upload(data, filename)
+                try:
+                    await self.activate(checksum)
+                    break
+                except ChecksumMismatch as e:
+                    if attempt:
+                        raise
+                    self.log("The Furby stored the wrong checksum (%s); deleting it and uploading again." % e)
         except Exception:
             await self.gp(furbyshow.antenna_command((255, 0, 0)))
             raise

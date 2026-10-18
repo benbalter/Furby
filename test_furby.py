@@ -1194,6 +1194,7 @@ class TestFlash(unittest.TestCase):
         import furbyshow
         data = bytes(range(256)) * 5
         checksum = zlib.adler32(data)
+        size = len(data)
 
         class FakeFurby:
             """Starts with an old DLC active in slot 13; stores and activates the upload in slot 12."""
@@ -1217,7 +1218,7 @@ class TestFlash(unittest.TestCase):
                 self.writes.append((uuid, bytes(data)))
                 if uuid == flash.FILE_WRITE:
                     self.received += data
-                    if len(self.received) == len(data):
+                    if len(self.received) == size:  # the whole file, not this 20-byte packet
                         self.filled.add(12)
                         self.say([0x24, 5])
                     return
@@ -1233,6 +1234,7 @@ class TestFlash(unittest.TestCase):
                     self.filled.discard(data[1])
                     self.say([0x74, data[1]])
                 elif cmd == 0x50:
+                    self.received = b""
                     self.say([0x24, 2])
                 elif cmd == 0x73:
                     self.say(bytes([0x73, data[1]]) + b"____PINK" + bytes(3) + checksum.to_bytes(4, "big"))
@@ -1251,6 +1253,25 @@ class TestFlash(unittest.TestCase):
         self.assertNotIn(13, furby.filled)  # the old DLC was deleted first, instead of a reset
         self.assertEqual(furby.writes[-1], (furbyshow.GP_WRITE, furbyshow.antenna_command((0, 255, 0))))
         self.assertTrue(any("slot 12" in line for line in logs))
+
+        # A fresh upload that reports the previous DLC's checksum is read again, then re-uploaded once
+        for stale_reads, uploads in ((2, 1), (flash.CHECKSUM_READS, 2)):
+            furby = FakeFurby()
+            furby.stale = stale_reads
+            say = furby.say
+
+            def stale_say(data, furby=furby, say=say):
+                if data[:1] == bytes([0x73]) and furby.stale:
+                    furby.stale -= 1
+                    data = bytes(data[:13]) + (checksum ^ 1).to_bytes(4, "big")
+                say(data)
+
+            furby.say = stale_say
+            flasher = flash.Flasher(furby, log=logs.append, packet_delay=0)
+            flasher.recheck_s = 0
+            asyncio.run(flasher.flash(data, "____PINK.DLC"))
+            self.assertEqual(len([w for w in furby.writes if w == (furbyshow.GP_WRITE, w[1]) and w[1][:1] == b"\x50"]), uploads)
+            self.assertEqual(furby.active, {12})
 
 
 class TestRehearsal(unittest.TestCase):

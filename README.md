@@ -480,7 +480,7 @@ With no computer on the night, an ESP32-S3 board running MicroPython on a USB po
 2. Build the show (`uv run halloween.py`), then plug the board in over USB and run `firmware/deploy.sh`. It installs [aioble](https://github.com/micropython/micropython-lib/tree/master/micropython/bluetooth/aioble) and copies the show over.
 3. Power the board up first, then the Furbies one at a time, following its LED (below).
 
-The board starts the show on power-up, keeps both Furbies awake, plays a random scene every 20 to 45 seconds, and plays a greeting right away when you press its button. To greet trick-or-treaters as they walk up, wire a PIR motion sensor (such as an HC-SR501) to a free GPIO and set `PIR_PIN` at the top of [`firmware/main.py`](firmware/main.py). Its LED says which Furby to power up next, and the board prints the same messages as `porch.py` over USB:
+The board starts the show on power-up, keeps both Furbies awake, plays a random scene every 20 to 45 seconds, and plays a greeting right away when you press its button. To greet trick-or-treaters as they walk up, wire a PIR motion sensor (such as an HC-SR501) to a free GPIO and set `PIR_PIN` at the top of [`firmware/main.py`](firmware/main.py), whose comment says which pins to avoid and how to set the sensor's jumper and dials. Its LED says which Furby to power up next, and the board prints the same messages as `porch.py` over USB:
 
 | LED | Means |
 | --- | --- |
@@ -489,6 +489,7 @@ The board starts the show on power-up, keeps both Furbies awake, plays a random 
 | Fast flicker | Nobody has turned up for about a minute. If they're singing together, take the batteries out of one and power them up one at a time |
 | Solid | A scene is playing |
 | Off | Every Furby is connected, between scenes |
+| 3 long blinks, over and over | The show couldn't start (the reason is on USB serial). The board restarts after about 30 seconds and tries again |
 
 A Furby that drops mid-show gets the same blinks again. A watchdog reboots it if the show ever hangs. Hold the button while plugging it in to skip the show.
 

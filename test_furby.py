@@ -939,6 +939,132 @@ class TestHalloween(unittest.TestCase):
         del plan["greetings"]
         self.assertEqual(show.scenes(greeting=True), plan["scenes"])
 
+    def test_furby_drops_mid_scene(self):
+        """A Furby that drops doesn't end the scene: the other finishes it, and the show looks again soon"""
+        import asyncio
+
+        import furbyshow
+        sent = []
+
+        class F(furbyshow.Furby):
+            def __init__(self, name, up=True, breaks=False):
+                super().__init__(name)
+                self.name, self.up, self.breaks = name, up, breaks
+
+            def connected(self):
+                return self.up
+
+            async def _write(self, data):
+                if self.breaks:  # still looks connected, but the write fails
+                    raise OSError("disconnected")
+                sent.append((self.name, bytes(data)))
+                if data[0] == 0x13:
+                    self.on_response(furbyshow.SEQUENCE_PLAYING)
+
+        async def sleep(seconds):
+            pass
+
+        light = {"effect": "steady", "color": [255, 0, 0]}
+        plan = {
+            "gap": 0, "every": [30, 60], "scenes": [["pink.a + blue.a", "blue.b", "pink.a"]],
+            "furbies": {
+                "pink": {"clips": {"a": {"action": [75, 0, 0, 2], "seconds": 1.0}}},
+                "blue": {"clips": {"a": {"action": [75, 0, 4, 4], "seconds": 1.0, "light": light},
+                                   "b": {"action": [75, 0, 5, 5], "seconds": 1.0}}},
+            },
+        }
+        logs = []
+        show = furbyshow.Show(plan, None, sleep=sleep, log=logs.append)
+        show.furbies = {"pink": F("pink"), "blue": F("blue", breaks=True)}
+        self.assertEqual(asyncio.run(show.run_once()), furbyshow.RETRY_FIND_S)
+        self.assertEqual([d for n, d in sent if d[0] == 0x13], [furbyshow.trigger_command((75, 0, 0, 2))] * 2)
+        self.assertTrue(any(line.startswith("Skipping blue.a: blue dropped") for line in logs), logs)
+        self.assertFalse(any("interrupted" in line for line in logs), logs)
+        # One that's known to be gone is skipped without trying it
+        sent.clear()
+        logs.clear()
+        show.furbies["blue"] = F("blue", up=False)
+        asyncio.run(show.play_scene(plan["scenes"][0]))
+        self.assertEqual([n for n, d in sent if d[0] == 0x13], ["pink", "pink"])
+        self.assertEqual(logs[1:], ["Skipping blue.a: blue dropped", "Skipping blue.b: blue dropped"])
+        # A scene with nobody missing waits as usual
+        show.furbies["blue"] = F("blue")
+        self.assertGreaterEqual(asyncio.run(show.run_once()), 30)
+
+    def test_greeting_with_a_furby_missing(self):
+        """A greeting plays with whoever's here at once, and starts the cooldown even as a fallback"""
+        import asyncio
+
+        import furbyshow
+
+        class F(furbyshow.Furby):
+            def connected(self):
+                return True
+
+            async def _write(self, data):
+                if data[0] == 0x13:
+                    self.on_response(furbyshow.SEQUENCE_PLAYING)
+
+        scans = []
+
+        async def find(known):
+            scans.append(known)
+            return []
+
+        async def sleep(seconds):
+            pass
+
+        clip = {"action": [75, 0, 0, 2], "seconds": 1.0}
+        plan = {
+            "gap": 0, "every": [30, 60], "cooldown": 10,
+            "scenes": [["pink.a"], ["pink.b"]], "greetings": [["pink.b"]],
+            "furbies": {"pink": {"clips": {"a": clip, "b": clip}}, "blue": {"clips": {"a": clip}}},
+        }
+        show = furbyshow.Show(plan, find, sleep=sleep, log=lambda *_: None)
+        show.furbies["pink"] = F("aa")
+        asyncio.run(show.run_once(greeting=True))
+        self.assertEqual(scans, [])  # nobody waits on a scan for blue
+        self.assertEqual(show.last, ["pink.b"])
+        asyncio.run(show.run_once())
+        self.assertEqual(len(scans), 1)  # the timer looks for blue
+        # A greeting that needs blue falls back to another scene, and still starts the cooldown
+        plan["greetings"] = [["pink.b", "blue.a"]]
+        show.greeted = None
+        asyncio.run(show.run_once(greeting=True))
+        self.assertEqual(len(scans), 2)
+        self.assertIsNotNone(show.greeted)
+
+    def test_keep_alive(self):
+        """A connected Furby gets a keepalive after a few quiet seconds, and a failed one doesn't stop it"""
+        import asyncio
+        from unittest import mock
+
+        import furbyshow
+        clock = [0]
+        sent = []
+
+        class F(furbyshow.Furby):
+            checks = 0
+
+            def connected(self):
+                self.checks += 1
+                return self.checks <= 9  # 0 s to 8 s
+
+            async def _write(self, data):
+                sent.append((clock[0], bytes(data)))
+                if len(sent) == 1:
+                    raise OSError("busy")
+
+        async def tick(seconds):
+            clock[0] += 1000
+
+        with mock.patch.object(furbyshow, "ticks_ms", lambda: clock[0]), \
+                mock.patch.object(furbyshow.asyncio, "sleep", tick), mock.patch("builtins.print"):
+            furby = F("aa")
+            asyncio.run(furby.keep_alive())
+        # Quiet for over 3 s at 4 s, then again 4 s after that ping (the failed one counts as sent)
+        self.assertEqual(sent, [(4000, furbyshow.KEEPALIVE), (8000, furbyshow.KEEPALIVE)])
+
     def test_show_parsing(self):
         """furbyshow reads FurBLE's responses and picks playable scenes"""
         import furbyshow
@@ -1327,7 +1453,6 @@ class TestFirmware(unittest.TestCase):
 
     def setUp(self):
         import asyncio
-        import importlib.util
         import sys
         import types
 
@@ -1340,7 +1465,7 @@ class TestFirmware(unittest.TestCase):
         self.disconnected = []
 
         class Pin:
-            IN, OUT, PULL_UP, IRQ_FALLING, IRQ_RISING = 0, 1, 2, 3, 4
+            IN, OUT, PULL_UP, PULL_DOWN, IRQ_FALLING, IRQ_RISING = 0, 1, 2, 5, 3, 4
 
             def __init__(self, number, mode=None, pull=None):
                 self.number, self.level = number, test.pins.get(number, 1)
@@ -1441,16 +1566,28 @@ class TestFirmware(unittest.TestCase):
                     raise StopAsyncIteration
                 return self.results.pop(0)
 
-        fakes = {
+        class Reset(Exception):
+            pass
+
+        def reset():
+            raise Reset
+
+        self.Reset = Reset
+        self.fakes = {
             "aioble": types.SimpleNamespace(scan=scan),
             "bluetooth": types.SimpleNamespace(UUID=str),
-            "machine": types.SimpleNamespace(Pin=Pin, WDT=WDT),
+            "machine": types.SimpleNamespace(Pin=Pin, WDT=WDT, reset=reset),
         }
-        self.saved = {name: sys.modules.get(name) for name in fakes}
-        sys.modules.update(fakes)
+        self.saved = {name: sys.modules.get(name) for name in self.fakes}
+        sys.modules.update(self.fakes)
+        self.main = self.load()
+
+    def load(self):
+        import importlib.util
         spec = importlib.util.spec_from_file_location("firmware_main", "./firmware/main.py")
-        self.main = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(self.main)
+        main = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(main)
+        return main
 
     def tearDown(self):
         import sys
@@ -1469,6 +1606,25 @@ class TestFirmware(unittest.TestCase):
         self.assertEqual(self.disconnected, ["bb"])
         # Already-connected Furbies are skipped
         self.assertEqual(asyncio.run(self.main.find(["aa"])), [])
+
+    def test_startup_crash(self):
+        """If the show can't even load, the board says why, blinks three long blinks, and restarts"""
+        import io
+        import sys
+        from contextlib import redirect_stdout
+        from unittest import mock
+
+        sys.modules["aioble"] = None  # as if deploy.sh never installed it
+        levels = []
+        out = io.StringIO()
+        with mock.patch("time.sleep", lambda _: levels.append(self.pins.get("led"))), redirect_stdout(out):
+            with mock.patch.object(self.fakes["machine"].Pin, "value",
+                                   lambda pin, level=None: self.pins.__setitem__("led", level)):
+                with self.assertRaises(self.Reset):
+                    self.load()
+        self.assertIn("aioble", out.getvalue())
+        self.assertEqual(len(levels), 300)  # 30 s of 100 ms steps
+        self.assertEqual(levels[:5], [1, 1, 1, 1, 0])
 
     def test_safe_boot(self):
         """Holding the button at power-up skips the show"""

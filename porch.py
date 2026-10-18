@@ -39,6 +39,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import traceback
 
 import furbyshow
 
@@ -316,7 +317,7 @@ async def main(args):
         if await check(plan, find, timings_path=timings):
             raise SystemExit(1)
         return
-    show = furbyshow.Show(plan, find)
+    show = furbyshow.Show(plan, find, trace=traceback.print_exception)
     if args.list:
         for furby in await find([]):
             print("%s  %s" % (furby.name, furby.address))

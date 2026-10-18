@@ -522,7 +522,7 @@ Change it in [`halloween/show.toml`](halloween/show.toml) with `light` on a clip
 
 ## Checking your setup and probing a Furby
 
-`uv run doctor.py` checks everything the show needs and prints a ✅ or a ❌ with a one-line fix for each: Python and uv, ffmpeg, whether this computer can use Bluetooth (on a Mac, the app you run it in needs Bluetooth permission under System Settings → Privacy & Security), every clip in `show.toml`, and the built DLCs. Wake the Furbies and add `--furbies` to check that each one is in range with the right DLC.
+`uv run doctor.py` checks everything the show needs and prints a ✅ or a ❌ with a one-line fix for each: Python and uv, ffmpeg, whether this computer can use Bluetooth (on a Mac, the app you run it in needs Bluetooth permission under System Settings → Privacy & Security), every clip in `show.toml`, and the built DLCs. Wake one Furby and add `--furbies` to check that it has the right DLC, then put it to sleep and do the same for the other (two awake together sing and can't be found).
 
 [`probe.py`](probe.py) measures what a Furby does with each slot. `uv run probe.py build slots` builds a DLC where every slot says its own number, and `uv run probe.py build motions e000-e017` one where slot N says "move N" and runs just that body movement. Flash it with `flash.py`, then `uv run probe.py run slots` plays each slot in turn, times it from start to finish, and saves the table in `build/probe/`. Add `--reverse`, `--times 3` or `--only 2,5` to dig into odd ones.
 

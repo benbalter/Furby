@@ -47,7 +47,8 @@ LED_PIN = 21  # and its onboard LED
 #   - Power it from the board's VCC pin, which is 5 V from USB (on a LiPo it's
 #     the battery's 3.7 V, below the HC-SR501's rated 4.5 V), and GND.
 #   - Don't use GPIO 0, 3, 45 or 46 (the ESP32-S3's strapping pins), 19 or 20
-#     (USB), or 21 and 47 (the LED and button). Any other header pin will do.
+#     (USB), 26-37 (flash and octal PSRAM), or 21 and 47 (the LED and
+#     button). Any other header pin will do.
 #   - On the sensor: jumper on H (repeat trigger), the time pot all the way
 #     down (about 3 s), and allow it a minute to settle after power-up.
 PIR_PIN = None
@@ -62,12 +63,16 @@ def crashed(error):
     """Say why the show couldn't start, blink it on the LED, then restart and try again.
 
     Needs nothing but machine, so it works even when an import is what failed.
+    Holding the button (safe boot) stops at the REPL instead, to fix the files.
     """
     print("The show couldn't start:")
     if hasattr(sys, "print_exception"):
         sys.print_exception(error)
     else:
         print(repr(error))
+    if machine.Pin(BUTTON_PIN, machine.Pin.IN, machine.Pin.PULL_UP).value() == 0:
+        print("Button held: safe boot, staying at the REPL")
+        raise error
     led = machine.Pin(LED_PIN, machine.Pin.OUT)
     for i in range(CRASH_MS // BLINK_MS):
         led.value(CRASH_BLINKS[i % len(CRASH_BLINKS)])

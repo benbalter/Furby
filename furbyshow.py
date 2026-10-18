@@ -583,20 +583,27 @@ class Show:
                 return True
             self.log("Motion ignored: a greeting just played")
 
+    async def reconnect(self):
+        """Look for any Furby that isn't connected, saying who to power up."""
+        if self.present() == set(self.plan["furbies"]):
+            return
+        self.guide()  # say who to power up before the scan, which takes a while
+        try:
+            await self.connect_missing()
+        finally:
+            self.guide()
+
     async def run_once(self, greeting=False):
         """Connect what's missing, play one scene if possible; returns how long to wait.
 
         greeting picks from the greetings, for when someone has just arrived.
-        Someone at the door is greeted by whoever's connected, without waiting
-        on a scan for a Furby that's missing; the timed scenes look for it.
+        Someone at the door is greeted by whoever's connected first, and the
+        scan for a missing Furby comes after, so they don't wait on it.
         """
         scene = pick_scene(self.scenes(True), self.present(), self.last) if greeting else None
-        if not scene and self.present() != set(self.plan["furbies"]):
-            self.guide()  # say who to power up before the scan, which takes a while
-            try:
-                await self.connect_missing()
-            finally:
-                self.guide()
+        greet_first = bool(scene)
+        if not greet_first:
+            await self.reconnect()
         scene = scene or pick_scene(self.scenes(greeting), self.present(), self.last)
         if not scene and greeting:  # no greeting playable with who's here: anything will do
             scene = pick_scene(self.plan["scenes"], self.present(), self.last)
@@ -615,6 +622,8 @@ class Show:
         self.last = scene
         if greeting:  # even one that fell back to an ordinary scene starts the cooldown
             self.greeted = ticks_ms()
+        if greet_first:  # now look for whoever's missing, or a busy porch would keep it from ever reconnecting
+            await self.reconnect()
         if self.cut_short:  # someone dropped: look for them soon, not after a whole wait
             return RETRY_FIND_S
         return random.uniform(self.plan["every"][0], self.plan["every"][1])

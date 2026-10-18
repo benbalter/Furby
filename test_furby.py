@@ -1072,18 +1072,19 @@ class TestHalloween(unittest.TestCase):
 
         import furbyshow
 
+        events = []  # triggers and scans, in order
+
         class F(furbyshow.Furby):
             def connected(self):
                 return True
 
             async def _write(self, data):
                 if data[0] == 0x13:
+                    events.append("play")
                     self.on_response(furbyshow.SEQUENCE_PLAYING)
 
-        scans = []
-
         async def find(known):
-            scans.append(known)
+            events.append("scan")
             return []
 
         async def sleep(seconds):
@@ -1098,15 +1099,18 @@ class TestHalloween(unittest.TestCase):
         show = furbyshow.Show(plan, find, sleep=sleep, log=lambda *_: None)
         show.furbies["pink"] = F("aa")
         asyncio.run(show.run_once(greeting=True))
-        self.assertEqual(scans, [])  # nobody waits on a scan for blue
+        # Greeted first, then the scan for blue, so a busy porch can't keep it from reconnecting
+        self.assertEqual(events, ["play", "scan"])
         self.assertEqual(show.last, ["pink.b"])
+        events.clear()
         asyncio.run(show.run_once())
-        self.assertEqual(len(scans), 1)  # the timer looks for blue
+        self.assertEqual(events, ["scan", "play"])  # the timer looks for blue first
         # A greeting that needs blue falls back to another scene, and still starts the cooldown
         plan["greetings"] = [["pink.b", "blue.a"]]
         show.greeted = None
+        events.clear()
         asyncio.run(show.run_once(greeting=True))
-        self.assertEqual(len(scans), 2)
+        self.assertEqual(events, ["scan", "play"])
         self.assertIsNotNone(show.greeted)
 
     def test_keep_alive(self):
@@ -1708,6 +1712,11 @@ class TestFirmware(unittest.TestCase):
         self.assertIn("aioble", out.getvalue())
         self.assertEqual(len(levels), 300)  # 30 s of 100 ms steps
         self.assertEqual(levels[:5], [1, 1, 1, 1, 0])
+        # Holding the button still gets you to the REPL to fix the files, rather than a reset loop
+        self.pins[47] = 0  # BUTTON_PIN; the module that would say so didn't load
+        with redirect_stdout(io.StringIO()) as out, self.assertRaises(ImportError):
+            self.load()
+        self.assertIn("safe boot", out.getvalue())
 
     def test_safe_boot(self):
         """Holding the button at power-up skips the show"""

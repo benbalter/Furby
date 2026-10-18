@@ -511,11 +511,12 @@ def scene_slots(D):
 DEMO_ACTIONS = [(75, 0, 4, 4), (75, 0, 3, 4), (75, 0, 0, 3)]  # where demo.py's eyes play
 
 
-def _check_size(path, hint):
+def _check_size(path, hint, label=None):
     size = os.path.getsize(path)
     if size > MAX_UPLOAD:
         raise SystemExit(
-            "%s is %d KB; uploads time out above about %d KB. %s" % (path, size // 1000, MAX_UPLOAD // 1000, hint)
+            "%s is %d KB; uploads time out above about %d KB. %s"
+            % (label or path, size // 1000, MAX_UPLOAD // 1000, hint)
         )
     return size
 
@@ -565,13 +566,14 @@ def build(
     dlc_out = dlc_out or os.path.join(out_dir, "%s.dlc" % (name or "spooky_%s" % theme))
     D.build(dlc_out)
     hint = "Use shorter or fewer clips, or fewer eye themes (each costs about %d KB)." % (THEME_BYTES // 1000)
-    size = _check_size(dlc_out, hint)
+    label = dlc_out.removesuffix(".tmp")  # halloween.py builds to a .tmp, then moves it there
+    size = _check_size(dlc_out, hint, label)
     built = dlc(dlc_out)
     for t, w in words.items():
         save_preview(render(built, w), os.path.join(work_dir, "eyes_%s.gif" % t))
     print(
         "Built %s (%d KB): eyes %s. Previews in %s."
-        % (dlc_out, size // 1000, ", ".join("%s = 0x%04x" % (t, w) for t, w in words.items()), work_dir)
+        % (label, size // 1000, ", ".join("%s = 0x%04x" % (t, w) for t, w in words.items()), work_dir)
     )
     return dlc_out
 

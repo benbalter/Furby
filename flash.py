@@ -24,6 +24,7 @@ still fails, reset the Furby that way and run it again.
 import argparse
 import asyncio
 import os
+import re
 import sys
 import time
 import zlib
@@ -39,6 +40,20 @@ MAX_UNACKED = 10  # the Furby only acks while packets keep arriving, so don't pa
 MAX_PAUSE_S = 2.0
 TRANSFER = {1: "EndCurrentTransfer", 2: "ReadyToReceive", 3: "FileTransferTimeout", 4: "ReadyToAppend",
             5: "FileReceivedOk", 6: "FileReceivedErr"}  # fmt: skip
+
+
+NAME = re.compile(r"[a-z0-9]{1,8}$")
+
+
+def check_name(name, where=None):
+    """A DLC name (a Furby's name in the show) that survives the Furby's 8.3 storage and the show's lookup."""
+    if not isinstance(name, str) or not NAME.match(name):
+        raise SystemExit(
+            "%s%r won't work as a DLC name: use 1-8 lowercase letters or digits, since the Furby "
+            "stores it as an 8.3 name (____NAME.DLC) and the show finds the Furby by it."
+            % (where + ": " if where else "", name)
+        )
+    return name
 
 
 def furby_filename(path):

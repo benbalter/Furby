@@ -31,7 +31,6 @@ import argparse
 import asyncio
 import json
 import os
-import re
 import shutil
 import statistics
 import subprocess
@@ -39,25 +38,15 @@ import sys
 import time
 
 import furbyshow
+from flash import check_name
 
 OUT_DIR = "./build/probe"
 STOCK_DLC = "./dlc/dlc2/tu003410.dlc"
 SHOW_JSON = "./build/halloween/show.json"
 EYES = "demon"  # every probe slot shows this one animation, 0x8401 (the proven layout)
-NAME = re.compile(r"[a-z0-9]{1,8}$")
 
 
 # --- Building ---------------------------------------------------------------
-
-
-def check_name(name):
-    """Probe DLC names must survive the Furby's 8.3 storage and the show's lowercase lookup."""
-    if not NAME.match(name):
-        raise SystemExit(
-            "%r won't work as a DLC name: use 1-8 lowercase letters or digits, since the Furby "
-            "stores it as an 8.3 name (____NAME.DLC) and run finds the Furby by it." % name
-        )
-    return name
 
 
 def parse_motors(text):

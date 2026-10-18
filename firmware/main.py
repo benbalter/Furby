@@ -28,28 +28,70 @@ stay at the REPL, e.g. to copy new files. Otherwise a watchdog reboots the
 board if the show ever hangs, which also means you have about two minutes
 after interrupting the show before it reboots.
 
+If the show can't start at all (a bad show.json, a missing aioble, an old
+furbyshow.py left on the board), the LED blinks three long blinks, over and
+over, for about 30 s, and the board restarts; the error is on USB serial.
+
 Copy everything to the board with firmware/deploy.sh.
 """
 
-import asyncio
-import json
-from collections import deque
+import sys
+import time
 
-import aioble
-import bluetooth
 import machine
-
-import furbyshow
 
 BUTTON_PIN = 47  # the FireBeetle 2 ESP32-S3's onboard button
 LED_PIN = 21  # and its onboard LED
 # A PIR motion sensor (e.g. an HC-SR501) plays a greeting when someone walks
-# up. Wire its output to a free GPIO and put the pin number here; None leaves
-# it off. The sensor drives the pin high on motion, so it needs no pull-up.
+# up. Put the GPIO its OUT pin is wired to here; None leaves it off.
+#   - Power it from the board's VCC pin, which is 5 V from USB (on a LiPo it's
+#     the battery's 3.7 V, below the HC-SR501's rated 4.5 V), and GND.
+#   - Don't use GPIO 0, 3, 45 or 46 (the ESP32-S3's strapping pins), 19 or 20
+#     (USB), 26-37 (flash and octal PSRAM), or 21 and 47 (the LED and
+#     button). Any other header pin will do.
+#   - On the sensor: jumper on H (repeat trigger), the time pot all the way
+#     down (about 3 s), and allow it a minute to settle after power-up.
 PIR_PIN = None
+CRASH_BLINKS = (1, 1, 1, 1, 0) * 3 + (0,) * 6  # three long blinks: the show couldn't start
+CRASH_MS = 30_000  # how long to blink that before restarting
 BLINK_MS = 100  # the status LED's pattern steps (see led_pattern)
 WATCHDOG_MS = 120_000  # reboot if not fed for this long
 STALL_MS = 300_000  # stop feeding the watchdog if the show makes no progress for this long
+
+
+def crashed(error):
+    """Say why the show couldn't start, blink it on the LED, then restart and try again.
+
+    Needs nothing but machine, so it works even when an import is what failed.
+    Holding the button (safe boot) stops at the REPL instead, to fix the files.
+    """
+    print("The show couldn't start:")
+    if hasattr(sys, "print_exception"):
+        sys.print_exception(error)
+    else:
+        print(repr(error))
+    if machine.Pin(BUTTON_PIN, machine.Pin.IN, machine.Pin.PULL_UP).value() == 0:
+        print("Button held: safe boot, staying at the REPL")
+        raise error
+    led = machine.Pin(LED_PIN, machine.Pin.OUT)
+    for i in range(CRASH_MS // BLINK_MS):
+        led.value(CRASH_BLINKS[i % len(CRASH_BLINKS)])
+        time.sleep(BLINK_MS / 1000)
+    machine.reset()
+
+
+try:  # everything that can fail to load: an old furbyshow.py, a missing aioble
+    import asyncio
+    import json
+    from collections import deque
+
+    import aioble
+    import bluetooth
+
+    import furbyshow
+except Exception as e:
+    crashed(e)
+
 SERVICE = bluetooth.UUID(furbyshow.GP_SERVICE)
 WRITE = bluetooth.UUID(furbyshow.GP_WRITE)
 LISTEN = bluetooth.UUID(furbyshow.GP_LISTEN)
@@ -157,6 +199,17 @@ async def status_light(show, led):
         await asyncio.sleep(BLINK_MS / 1000)
 
 
+def log(line):
+    """Print a line from the show with the seconds since boot, to read a serial capture by."""
+    print("[%6d] %s" % (furbyshow.ticks_ms() // 1000, line))
+
+
+def trace(error):
+    """Print where an error came from, as well as the one line the show logs about it."""
+    if hasattr(sys, "print_exception"):
+        sys.print_exception(error)
+
+
 async def main(plan_path="show.json"):
     with open(plan_path) as f:
         text = f.read()
@@ -164,12 +217,12 @@ async def main(plan_path="show.json"):
     # MicroPython's dicts forget show.json's order, which says who to power up first
     order = furbyshow.plan_order(text, plan["furbies"])
     del text
-    show = furbyshow.Show(plan, find, wake=asyncio.ThreadSafeFlag(), order=order)
+    show = furbyshow.Show(plan, find, log=log, wake=asyncio.ThreadSafeFlag(), order=order, trace=trace)
     button = machine.Pin(BUTTON_PIN, machine.Pin.IN, machine.Pin.PULL_UP)
     # ThreadSafeFlag is safe to set from an interrupt and wakes the show at once.
     button.irq(lambda _: show.trigger(), machine.Pin.IRQ_FALLING)
     if PIR_PIN is not None:
-        pir = machine.Pin(PIR_PIN, machine.Pin.IN)
+        pir = machine.Pin(PIR_PIN, machine.Pin.IN, machine.Pin.PULL_DOWN)  # a loose wire reads as no motion
         pir.irq(lambda _: show.trigger(sensor=True), machine.Pin.IRQ_RISING)
     asyncio.create_task(watchdog(show, machine.WDT(timeout=WATCHDOG_MS)))
     asyncio.create_task(status_light(show, machine.Pin(LED_PIN, machine.Pin.OUT)))
@@ -185,4 +238,9 @@ if __name__ == "__main__":
     if safe_boot():
         print("Button held: safe boot, show not started")
     else:
-        asyncio.run(main())
+        watchdog_reset = machine.reset_cause() == machine.WDT_RESET
+        print("Starting the show" + (" after the watchdog restarted the board" if watchdog_reset else ""))
+        try:
+            asyncio.run(main())
+        except Exception as e:
+            crashed(e)

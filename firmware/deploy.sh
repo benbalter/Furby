@@ -30,5 +30,7 @@ uvx --from mpy-cross mpy-cross -o "$work/furbyshow.mpy" furbyshow.py
 
 mpremote=(uvx mpremote connect "${PORT:-auto}")
 "${mpremote[@]}" mip install "${AIOBLE[@]}"
+# MicroPython imports furbyshow.py ahead of furbyshow.mpy, so an old hand copy would hide this one
+"${mpremote[@]}" rm :furbyshow.py 2>/dev/null || true
 "${mpremote[@]}" cp "$work/furbyshow.mpy" firmware/main.py "$SHOW" : + reset
 echo "Deployed. The show starts in a few seconds; watch it with: uvx mpremote connect ${PORT:-auto} repl"

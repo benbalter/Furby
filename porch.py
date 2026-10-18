@@ -39,6 +39,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import traceback
 
 import furbyshow
 
@@ -297,9 +298,23 @@ def greet_on_enter(show):
     print("Press Enter to play a greeting when someone arrives.")
 
 
+def check_choice(plan, args):
+    """Turn a --scene or --clip that isn't in the built show into a list of what is, not a traceback."""
+    if args.scene is not None and not 0 <= args.scene < len(plan["scenes"]):
+        listing = "\n".join("  %d  %s" % (n, " -> ".join(s)) for n, s in enumerate(plan["scenes"]))
+        raise SystemExit("There's no scene %d. The built show has %d:\n%s" % (args.scene, len(plan["scenes"]), listing))
+    if args.clip:
+        for part in furbyshow.step_parts(args.clip):
+            name, _, clip = part.partition(".")
+            if clip not in plan["furbies"].get(name, {}).get("clips", {}):
+                clips = sorted("%s.%s" % (n, c) for n, f in plan["furbies"].items() for c in f["clips"])
+                raise SystemExit("There's no clip %r in the built show. It has: %s" % (part, ", ".join(clips)))
+
+
 async def main(args):
     with open(args.show) as f:
         plan = json.load(f)
+    check_choice(plan, args)
     if args.rehearse:
         await rehearse(plan, args)
         return
@@ -316,7 +331,7 @@ async def main(args):
         if await check(plan, find, timings_path=timings):
             raise SystemExit(1)
         return
-    show = furbyshow.Show(plan, find)
+    show = furbyshow.Show(plan, find, trace=traceback.print_exception)
     if args.list:
         for furby in await find([]):
             print("%s  %s" % (furby.name, furby.address))

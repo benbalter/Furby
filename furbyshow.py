@@ -330,12 +330,13 @@ class Show:
     the next one to power up, and run() logs what to do whenever that changes.
     """
 
-    def __init__(self, plan, find, sleep=asyncio.sleep, log=print, wake=None, order=None):
+    def __init__(self, plan, find, sleep=asyncio.sleep, log=print, wake=None, order=None, trace=None):
         self.plan = plan
         self.order = list(order or plan.get("order") or plan["furbies"])
         self.find = find
         self.sleep = sleep
         self.log = log
+        self.trace = trace  # trace(error) prints a traceback, e.g. sys.print_exception on the board
         self.furbies = {}  # name → Furby
         self.wake = wake or asyncio.Event()
         self.last = None
@@ -346,6 +347,7 @@ class Show:
         self.seen = set()  # every Furby that has connected, to tell a drop from a first power-up
         self.empty_scans = 0  # scans in a row that connected nobody new
         self.guided = None  # the power-up state last logged by guide()
+        self.cut_short = False  # a Furby dropped during the last scene
 
     def stalled_ms(self):
         """How long since the show last made progress."""
@@ -487,9 +489,15 @@ class Show:
         lines = []
         for part in step_parts(step):
             name, clip = part.split(".")
+            furby = self.furbies.get(name)
+            if furby is None or not furby.connected():  # the others carry on without it
+                self.skip(part, name)
+                continue
             plan = self.plan["furbies"][name]
             info = plan["clips"][clip]
-            lines.append((self.furbies[name], info, clip_light(plan, info), name))
+            lines.append((furby, info, clip_light(plan, info), name, part))
+        if not lines:
+            return
         # A clip's "before" holds an extra beat first, e.g. before a punchline.
         before = max(line[1].get("before", 0) for line in lines)
         if before:
@@ -497,17 +505,21 @@ class Show:
         # Each speaking Furby's antenna lights for its line (see light_rgb). Light
         # them all first, then trigger the clips back to back so duets start
         # together; each light then follows its own line from when it starts.
-        for furby, info, light, _ in lines:
+        for furby, info, light, _, _ in lines:
             if light:
                 level = envelope_level(info.get("envelope"), 0)
-                await furby.glow(light_rgb(light, 0, level, info["action"][2] * 31 + info["action"][3]))
+                await self.quietly(furby, light_rgb(light, 0, level, info["action"][2] * 31 + info["action"][3]))
         stop = asyncio.Event()
         tasks = []
-        parts = step_parts(step)
         try:
-            for i, (furby, info, light, name) in enumerate(lines):
-                if not await furby.play(info["action"]):
-                    self.log("%s skipped: %s stayed busy with its last sequence" % (parts[i], furby))
+            for furby, info, light, name, part in lines:
+                try:
+                    played = await furby.play(info["action"])
+                except Exception as e:  # it dropped mid-write
+                    self.skip(part, name, e)
+                    continue
+                if not played:
+                    self.log("%s skipped: %s stayed busy with its last sequence" % (part, furby))
                 elif light:
                     tasks.append(asyncio.create_task(self.light_line(furby, info, light, self.rest(name), stop)))
             await self.sleep(max(line[1]["seconds"] for line in lines))
@@ -519,10 +531,15 @@ class Show:
                     await task
                 except Exception:
                     pass
-            for furby, _, light, name in lines:
+            for furby, _, light, name, _ in lines:
                 if light:
                     await self.quietly(furby, self.rest(name))
         await self.sleep(self.plan["gap"])
+
+    def skip(self, part, name, error=None):
+        """Note a line that can't play because its Furby dropped; the show looks for it sooner."""
+        self.cut_short = True
+        self.log("Skipping %s: %s dropped%s" % (part, name, " (%s)" % error if error else ""))
 
     async def play_scene(self, scene):
         self.log("Scene: %s" % " -> ".join(scene))
@@ -566,31 +583,49 @@ class Show:
                 return True
             self.log("Motion ignored: a greeting just played")
 
+    async def reconnect(self):
+        """Look for any Furby that isn't connected, saying who to power up."""
+        if self.present() == set(self.plan["furbies"]):
+            return
+        self.guide()  # say who to power up before the scan, which takes a while
+        try:
+            await self.connect_missing()
+        finally:
+            self.guide()
+
     async def run_once(self, greeting=False):
         """Connect what's missing, play one scene if possible; returns how long to wait.
 
         greeting picks from the greetings, for when someone has just arrived.
+        Someone at the door is greeted by whoever's connected first, and the
+        scan for a missing Furby comes after, so they don't wait on it.
         """
-        if self.present() != set(self.plan["furbies"]):
-            self.guide()  # say who to power up before the scan, which takes a while
-            try:
-                await self.connect_missing()
-            finally:
-                self.guide()
-        scene = pick_scene(self.scenes(greeting), self.present(), self.last)
+        scene = pick_scene(self.scenes(True), self.present(), self.last) if greeting else None
+        greet_first = bool(scene)
+        if not greet_first:
+            await self.reconnect()
+        scene = scene or pick_scene(self.scenes(greeting), self.present(), self.last)
         if not scene and greeting:  # no greeting playable with who's here: anything will do
             scene = pick_scene(self.plan["scenes"], self.present(), self.last)
         if not scene:  # guide() has already said who's missing
             if self.waiting_for() is None:
                 self.log("No scene to play with %s" % ", ".join(self.order))
             return RETRY_FIND_S
+        self.cut_short = False
         try:
             await self.play_scene(scene)
         except Exception as e:
             self.log("Scene interrupted: %s" % e)
+            if self.trace:
+                self.trace(e)
+            self.cut_short = True
         self.last = scene
-        if scene in self.plan.get("greetings", []):
+        if greeting:  # even one that fell back to an ordinary scene starts the cooldown
             self.greeted = ticks_ms()
+        if greet_first:  # now look for whoever's missing, or a busy porch would keep it from ever reconnecting
+            await self.reconnect()
+        if self.cut_short:  # someone dropped: look for them soon, not after a whole wait
+            return RETRY_FIND_S
         return random.uniform(self.plan["every"][0], self.plan["every"][1])
 
     async def run(self):
@@ -601,5 +636,7 @@ class Show:
                 wait = await self.run_once(greeting)
             except Exception as e:  # never let one bad scan end the show
                 self.log("Show error, retrying: %s" % e)
+                if self.trace:
+                    self.trace(e)
                 wait = RETRY_FIND_S
             greeting = await self.wait(wait)

@@ -52,6 +52,7 @@ SCALE = 4  # draw big, then shrink, for smooth edges
 COLOURS = 63  # palette index 0 is kept transparent, as in the stock palettes
 MAX_UPLOAD = 350_000  # bigger DLCs time out mid-upload
 FRAMES = 38  # frames per animation: the stock animation's length, the only one tested on a Furby
+THEME_BYTES = 78_900  # what each eye theme after the first adds to a DLC at FRAMES frames (measured)
 MAX_FRAMES = 95  # the longest animation in the firmware's own eye files
 FRAME_MS = 66  # preview speed only: a guess (furby-connect-eyes-extract's), not measured on a Furby
 FIRST_ANIMATION = 0x8401  # eye word for the DLC's animation 1; 0x8402 is animation 2, and so on
@@ -510,11 +511,12 @@ def scene_slots(D):
 DEMO_ACTIONS = [(75, 0, 4, 4), (75, 0, 3, 4), (75, 0, 0, 3)]  # where demo.py's eyes play
 
 
-def _check_size(path, hint):
+def _check_size(path, hint, label=None):
     size = os.path.getsize(path)
     if size > MAX_UPLOAD:
         raise SystemExit(
-            "%s is %d KB; uploads time out above about %d KB. %s" % (path, size // 1000, MAX_UPLOAD // 1000, hint)
+            "%s is %d KB; uploads time out above about %d KB. %s"
+            % (label or path, size // 1000, MAX_UPLOAD // 1000, hint)
         )
     return size
 
@@ -529,8 +531,9 @@ def build(
     name=None,
     eyes=None,
     frames=FRAMES,
+    dlc_out=None,
 ):
-    """Build the DLC; returns its path.
+    """Build the DLC; returns its path (dlc_out, or <name>.dlc in out_dir).
 
     clips: {action code: audio file}, each played with the eyes. Use actions
     from scene_slots() so no clip plays under another action.
@@ -560,15 +563,17 @@ def build(
         D.replace_audio(code, [_a18(clip, work_dir)])
         D.trigger_custom_graphics(code, words[eyes.get(code, theme)])
 
-    dlc_out = os.path.join(out_dir, "%s.dlc" % (name or "spooky_%s" % theme))
+    dlc_out = dlc_out or os.path.join(out_dir, "%s.dlc" % (name or "spooky_%s" % theme))
     D.build(dlc_out)
-    size = _check_size(dlc_out, "Use shorter or fewer clips, or fewer eye themes (each costs about 74 KB).")
+    hint = "Use shorter or fewer clips, or fewer eye themes (each costs about %d KB)." % (THEME_BYTES // 1000)
+    label = dlc_out.removesuffix(".tmp")  # halloween.py builds to a .tmp, then moves it there
+    size = _check_size(dlc_out, hint, label)
     built = dlc(dlc_out)
     for t, w in words.items():
         save_preview(render(built, w), os.path.join(work_dir, "eyes_%s.gif" % t))
     print(
         "Built %s (%d KB): eyes %s. Previews in %s."
-        % (dlc_out, size // 1000, ", ".join("%s = 0x%04x" % (t, w) for t, w in words.items()), work_dir)
+        % (label, size // 1000, ", ".join("%s = 0x%04x" % (t, w) for t, w in words.items()), work_dir)
     )
     return dlc_out
 
@@ -726,7 +731,7 @@ if __name__ == "__main__":
     parser.add_argument("--sting", default="./audio/new_audio/darkside_wav.a18", help="audio for 75-0-3-4")
     parser.add_argument("--no-song", action="store_true", help="leave 75-0-4-4 and 75-0-3-4 alone, to save space")
     parser.add_argument("--frames", type=int, default=FRAMES, help="frames per animation (default %d)" % FRAMES)
-    parser.add_argument("--preview", action="store_true", help="write build/eyes/<theme>.gif for every theme")
+    parser.add_argument("--preview", action="store_true", help="write build/eyes/<theme>.gif and .png for every theme")
     parser.add_argument("--probe", action="store_true", help="build DLCs that test what's unverified")
     parser.add_argument("--out-dir", default="./build")
     args = parser.parse_args()

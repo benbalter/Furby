@@ -37,7 +37,7 @@ You need:
 
 1. Open Terminal (on a Mac, press ⌘-Space and type "Terminal").
 2. Install [uv](https://docs.astral.sh/uv/), which runs the scripts and installs everything they need the first time: `curl -LsSf https://astral.sh/uv/install.sh | sh`, then close Terminal and open it again.
-3. Install [ffmpeg](https://ffmpeg.org), which converts audio. With [Homebrew](https://brew.sh): `brew install ffmpeg`.
+3. Install [ffmpeg](https://ffmpeg.org), which converts audio. With [Homebrew](https://brew.sh): `brew install ffmpeg`. If Terminal says `command not found: brew`, install Homebrew first with the one-line command on [brew.sh](https://brew.sh) (it takes a few minutes and asks for your password), then run `brew install ffmpeg`.
 4. Get this repository and go into it:
 
    ```bash
@@ -45,9 +45,16 @@ You need:
    cd Furby
    ```
 
-   If your Mac offers to install its command line developer tools for `git`, say yes. Or skip git: on [the repository's page](https://github.com/benbalter/Furby), click **Code → Download ZIP**, unzip it, and `cd` into the folder.
+   If your Mac offers to install its command line developer tools for `git`, say yes. Or skip git: on [the repository's page](https://github.com/benbalter/Furby), click **Code → Download ZIP**, unzip it, and `cd` into the folder it makes, `Furby-master`.
+5. Check everything's in place:
 
-Every command below runs from this `Furby` folder.
+   ```bash
+   uv run doctor.py
+   ```
+
+   It lists each problem with a fix. Until you've made the clips and built the show (steps 2 and 3), it says those are missing; run it again any time something doesn't work.
+
+Every command below runs from this `Furby` folder (`Furby-master` if you downloaded the ZIP).
 
 ### 2. Make the clips
 
@@ -89,7 +96,7 @@ This writes `build/halloween/pink.dlc`, `blue.dlc` and `show.json` (the show's s
 uv run porch.py --rehearse
 ```
 
-This plays every scene through your computer's speakers, with the show's timing, no Furbies needed. `--scene 2` plays just one, and `--clip pink.boo` just one line. Re-record or edit anything you don't like, then build again (step 3).
+This plays every scene through your computer's speakers, with the show's timing, no Furbies needed. `--scene 0` plays just the first scene (they count from 0, in the order the build kept them; a number that's too high lists them all), and `--clip pink.boo` just one line. Re-record or edit anything you don't like, then build again (step 3).
 
 #### Preview the show on your computer
 
@@ -115,7 +122,7 @@ The two Furbies are identical, so the show tells them apart only by which DLC ea
 4. Take its batteries out, put the batteries in the other Furby, and flash `build/halloween/blue.dlc` the same way. Label it "blue".
 5. Lost track of which is which? Wake just one and run `uv run flash.py --list`: it prints the Furby's address and `active DLC: pink` (or `blue`).
 
-If you change anything in `show.toml` later, build again and reflash **both** Furbies: adding or renaming one clip can move others to different slots in the DLC.
+If you change anything in `show.toml` later, build again: the last line says which Furbies need reflashing, if any.
 
 ### 6. Run the show
 
@@ -174,7 +181,10 @@ The test suite includes:
 - Python 3 compatibility tests (bytes handling, integer division)
 - Section access and manipulation tests
 - Error handling tests
-- Custom eyes, the Halloween show build, and the show engine and firmware (against stand-ins for the ESP32's Bluetooth and pins)
+- Custom eyes, the eye check, and the Halloween show build, including show.toml mistakes and the real show built with placeholder tones
+- The show engine and firmware (against stand-ins for the ESP32's Bluetooth and pins), on virtual Furbies that model busy sequences and drops
+- Flashing, deploying, `doctor.py`, `probe.py`, `voices.py`, `package.py` and the browser preview, against stand-in Furbies
+- `--help` for every script, so a broken import fails even where nothing else imports it
 
 With [MicroPython](https://micropython.org)'s Unix port installed (`brew install micropython`), the show engine is also tested under MicroPython, as it runs on the board. Lint with [ruff](https://docs.astral.sh/ruff/): `uv run ruff check . && uv run ruff format --check .`
 
@@ -466,7 +476,7 @@ The Furby stores DLCs under 8.3-style names (`____PINK.DLC`), so keep file names
 
 - **Clips** can be anything ffmpeg reads, up to a few seconds each. A clip can also be a table that cuts a snippet, such as `{ path = "song.mp3", start = "0:08", seconds = 10 }`, which suits music; the bundled public-domain Toccata opening is one. Add `before = 0.4` to hold an extra beat before a clip, such as a punchline. Mark a clip `optional = true` to leave its scenes out until the file exists, as the show does for the Ghostbusters theme. Each clip gets its own `75` action in the DLC, chosen so no two actions share a track.
 - **Scenes** play their steps in order. Join clips with `+` in a step (`"pink.ghostbusters + blue.ghostbusters"`) to play them on both Furbies at once. Mark a scene `greeting = true` to save it for when someone arrives: Enter (or the ESP32's button or motion sensor) plays a greeting, the timer plays the other scenes, and `cooldown` in `[show]` ignores the motion sensor for a while after each greeting.
-- **Eyes**: each Furby's `eyes` list names the [eye themes](#example-spooky-halloween-eyes) its clips take turns through, and a clip table's `eyes = "storm"` picks its own. Each theme costs about 74 KB of the DLC. `uv run spooky_eyes.py --preview` writes GIFs of every theme to `build/eyes/`. `[show] one_eye_animation = true` (the default: on a real Furby, a second animation garbled the eyes) shows only each Furby's first theme.
+- **Eyes**: each Furby's `eyes` list names the [eye themes](#example-spooky-halloween-eyes) its clips take turns through, and a clip table's `eyes = "storm"` picks its own. Each theme costs about 79 KB of the DLC. `uv run spooky_eyes.py --preview` writes GIFs of every theme to `build/eyes/`. `[show] one_eye_animation = true` (the default: on a real Furby, a second animation garbled the eyes) shows only each Furby's first theme.
 - **Room**: each DLC has to stay under about 350 KB, and audio costs about 2 KB a second. After each build, `halloween.py` prints each DLC's size against that limit, with the biggest clips and what the eyes cost (`--verbose` lists every clip); it warns past 90%, and over the limit it says which clips to cut or drop. It also warns about clips no scene uses, since they still take up room.
 - **Names**: `pink` and `blue` are just names in `show.toml`, and they become the DLC file names (`pink.dlc`) that the show tells the Furbies apart by. Keep them to 8 letters or fewer.
 
@@ -480,7 +490,7 @@ With no computer on the night, an ESP32-S3 board running MicroPython on a USB po
 2. Build the show (`uv run halloween.py`), then plug the board in over USB and run `firmware/deploy.sh`. It installs [aioble](https://github.com/micropython/micropython-lib/tree/master/micropython/bluetooth/aioble) and copies the show over.
 3. Power the board up first, then the Furbies one at a time, following its LED (below).
 
-The board starts the show on power-up, keeps both Furbies awake, plays a random scene every 20 to 45 seconds, and plays a greeting right away when you press its button. To greet trick-or-treaters as they walk up, wire a PIR motion sensor (such as an HC-SR501) to a free GPIO and set `PIR_PIN` at the top of [`firmware/main.py`](firmware/main.py). Its LED says which Furby to power up next, and the board prints the same messages as `porch.py` over USB:
+The board starts the show on power-up, keeps both Furbies awake, plays a random scene every 20 to 45 seconds, and plays a greeting right away when you press its button. To greet trick-or-treaters as they walk up, wire a PIR motion sensor (such as an HC-SR501) to a free GPIO and set `PIR_PIN` at the top of [`firmware/main.py`](firmware/main.py), whose comment says which pins to avoid and how to set the sensor's jumper and dials. Its LED says which Furby to power up next, and the board prints the same messages as `porch.py` over USB:
 
 | LED | Means |
 | --- | --- |
@@ -489,6 +499,7 @@ The board starts the show on power-up, keeps both Furbies awake, plays a random 
 | Fast flicker | Nobody has turned up for about a minute. If they're singing together, take the batteries out of one and power them up one at a time |
 | Solid | A scene is playing |
 | Off | Every Furby is connected, between scenes |
+| 3 long blinks, over and over | The show couldn't start (the reason is on USB serial). The board restarts after about 30 seconds and tries again |
 
 A Furby that drops mid-show gets the same blinks again. A watchdog reboots it if the show ever hangs. Hold the button while plugging it in to skip the show.
 
@@ -511,7 +522,7 @@ Change it in [`halloween/show.toml`](halloween/show.toml) with `light` on a clip
 
 ## Checking your setup and probing a Furby
 
-`uv run doctor.py` checks everything the show needs and prints a ✅ or a ❌ with a one-line fix for each: Python and uv, ffmpeg, whether this computer can use Bluetooth (on a Mac, the app you run it in needs Bluetooth permission under System Settings → Privacy & Security), every clip in `show.toml`, and the built DLCs. Wake the Furbies and add `--furbies` to check that each one is in range with the right DLC.
+`uv run doctor.py` checks everything the show needs and prints a ✅ or a ❌ with a one-line fix for each: Python and uv, ffmpeg, whether this computer can use Bluetooth (on a Mac, the app you run it in needs Bluetooth permission under System Settings → Privacy & Security), every clip in `show.toml`, and the built DLCs. Wake one Furby and add `--furbies` to check that it has the right DLC, then put it to sleep and do the same for the other (two awake together sing and can't be found).
 
 [`probe.py`](probe.py) measures what a Furby does with each slot. `uv run probe.py build slots` builds a DLC where every slot says its own number, and `uv run probe.py build motions e000-e017` one where slot N says "move N" and runs just that body movement. Flash it with `flash.py`, then `uv run probe.py run slots` plays each slot in turn, times it from start to finish, and saves the table in `build/probe/`. Add `--reverse`, `--times 3` or `--only 2,5` to dig into odd ones.
 

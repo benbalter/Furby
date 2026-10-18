@@ -13,7 +13,7 @@
 [show]
 gap = 0.6           # seconds between one line ending and the next starting
 every = [20, 45]    # seconds between scenes, picked at random in this range
-cooldown = 20       # seconds after a scene when the button or motion sensor is ignored
+cooldown = 20       # seconds after a greeting when the motion sensor is ignored (the button never waits)
 # Eyes: each clip shows one eye animation, from its Furby's eyes list (below).
 # Preview them all with: uv run spooky_eyes.py --preview (writes build/eyes/).
 eye_frames = 38            # frames per eye animation: 38 is the stock length; up to 95

@@ -1497,6 +1497,14 @@ class TestRehearsal(unittest.TestCase):
             asyncio.run(porch.rehearse(plan, argparse.Namespace(clip=None, scene=0)))
         # The same action plays each Furby's own clip
         self.assertEqual(played, ["a.wav", "b.wav"])
+        # A scene or clip that isn't in the built show lists what is, rather than a traceback
+        porch.check_choice(plan, argparse.Namespace(clip="pink.a + blue.b", scene=0))
+        with self.assertRaises(SystemExit) as e:
+            porch.check_choice(plan, argparse.Namespace(clip=None, scene=1))
+        self.assertIn("no scene 1. The built show has 1:\n  0  pink.a -> blue.b", str(e.exception))
+        with self.assertRaises(SystemExit) as e:
+            porch.check_choice(plan, argparse.Namespace(clip="pink.b", scene=None))
+        self.assertIn("It has: blue.b, pink.a", str(e.exception))
 
     def test_rehearse_draws_antennas(self):
         """In a terminal, every lit antenna is a coloured block on one line, redrawn in place"""

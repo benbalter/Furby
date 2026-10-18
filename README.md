@@ -37,7 +37,7 @@ You need:
 
 1. Open Terminal (on a Mac, press ⌘-Space and type "Terminal").
 2. Install [uv](https://docs.astral.sh/uv/), which runs the scripts and installs everything they need the first time: `curl -LsSf https://astral.sh/uv/install.sh | sh`, then close Terminal and open it again.
-3. Install [ffmpeg](https://ffmpeg.org), which converts audio. With [Homebrew](https://brew.sh): `brew install ffmpeg`.
+3. Install [ffmpeg](https://ffmpeg.org), which converts audio. With [Homebrew](https://brew.sh): `brew install ffmpeg`. If Terminal says `command not found: brew`, install Homebrew first with the one-line command on [brew.sh](https://brew.sh) (it takes a few minutes and asks for your password), then run `brew install ffmpeg`.
 4. Get this repository and go into it:
 
    ```bash
@@ -45,9 +45,16 @@ You need:
    cd Furby
    ```
 
-   If your Mac offers to install its command line developer tools for `git`, say yes. Or skip git: on [the repository's page](https://github.com/benbalter/Furby), click **Code → Download ZIP**, unzip it, and `cd` into the folder.
+   If your Mac offers to install its command line developer tools for `git`, say yes. Or skip git: on [the repository's page](https://github.com/benbalter/Furby), click **Code → Download ZIP**, unzip it, and `cd` into the folder it makes, `Furby-master`.
+5. Check everything's in place:
 
-Every command below runs from this `Furby` folder.
+   ```bash
+   uv run doctor.py
+   ```
+
+   It lists each problem with a fix. Until you've made the clips and built the show (steps 2 and 3), it says those are missing; run it again any time something doesn't work.
+
+Every command below runs from this `Furby` folder (`Furby-master` if you downloaded the ZIP).
 
 ### 2. Make the clips
 
@@ -89,7 +96,7 @@ This writes `build/halloween/pink.dlc`, `blue.dlc` and `show.json` (the show's s
 uv run porch.py --rehearse
 ```
 
-This plays every scene through your computer's speakers, with the show's timing, no Furbies needed. `--scene 2` plays just one, and `--clip pink.boo` just one line. Re-record or edit anything you don't like, then build again (step 3).
+This plays every scene through your computer's speakers, with the show's timing, no Furbies needed. `--scene 0` plays just the first scene (they count from 0, in the order the build kept them; a number that's too high lists them all), and `--clip pink.boo` just one line. Re-record or edit anything you don't like, then build again (step 3).
 
 #### Preview the show on your computer
 
@@ -115,7 +122,7 @@ The two Furbies are identical, so the show tells them apart only by which DLC ea
 4. Take its batteries out, put the batteries in the other Furby, and flash `build/halloween/blue.dlc` the same way. Label it "blue".
 5. Lost track of which is which? Wake just one and run `uv run flash.py --list`: it prints the Furby's address and `active DLC: pink` (or `blue`).
 
-If you change anything in `show.toml` later, build again and reflash **both** Furbies: adding or renaming one clip can move others to different slots in the DLC.
+If you change anything in `show.toml` later, build again: the last line says which Furbies need reflashing, if any.
 
 ### 6. Run the show
 
@@ -174,7 +181,10 @@ The test suite includes:
 - Python 3 compatibility tests (bytes handling, integer division)
 - Section access and manipulation tests
 - Error handling tests
-- Custom eyes, the Halloween show build, and the show engine and firmware (against stand-ins for the ESP32's Bluetooth and pins)
+- Custom eyes, the eye check, and the Halloween show build, including show.toml mistakes and the real show built with placeholder tones
+- The show engine and firmware (against stand-ins for the ESP32's Bluetooth and pins), on virtual Furbies that model busy sequences and drops
+- Flashing, deploying, `doctor.py`, `probe.py`, `voices.py`, `package.py` and the browser preview, against stand-in Furbies
+- `--help` for every script, so a broken import fails even where nothing else imports it
 
 With [MicroPython](https://micropython.org)'s Unix port installed (`brew install micropython`), the show engine is also tested under MicroPython, as it runs on the board. Lint with [ruff](https://docs.astral.sh/ruff/): `uv run ruff check . && uv run ruff format --check .`
 

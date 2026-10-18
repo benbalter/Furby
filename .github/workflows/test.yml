@@ -24,7 +24,7 @@ jobs:
     timeout-minutes: 10
     strategy:
       matrix:
-        python-version: ['3.11', '3.12', '3.13']
+        python-version: ['3.11', '3.12', '3.13', '3.14']
 
     steps:
     - uses: actions/checkout@v7
@@ -37,7 +37,8 @@ jobs:
       run: uv run --locked python -m unittest test_furby -v
 
   # The show engine and firmware run on MicroPython on the board. Homebrew has
-  # MicroPython's Unix port, so these tests run for real here instead of skipping.
+  # MicroPython's Unix port, so the two tests that need it run for real here
+  # instead of skipping; the test job already runs everything else.
   micropython:
     runs-on: macos-latest
     timeout-minutes: 10
@@ -49,7 +50,10 @@ jobs:
     - name: Install MicroPython
       run: brew install micropython
     - name: Run the MicroPython tests
-      run: uv run --locked python -m unittest -v test_furby.TestHalloween test_furby.TestFirmware
+      run: >-
+        uv run --locked python -m unittest -v
+        test_furby.TestHalloween.test_show_runs_on_micropython
+        test_furby.TestFirmware.test_compiles_for_micropython
     - name: Compile the board's files with mpy-cross
       run: |
         uvx mpy-cross -o /tmp/furbyshow.mpy furbyshow.py
@@ -87,8 +91,9 @@ jobs:
     steps:
     - uses: actions/checkout@v7
     - uses: astral-sh/setup-uv@v10.3.0
-    - run: uv run --locked ruff check .
-    - run: uv run --locked ruff format --check .
+    # Only the dev group: ruff doesn't need Pillow, bleak or the codec
+    - run: uv run --locked --only-group dev ruff check .
+    - run: uv run --locked --only-group dev ruff format --check .
     # Workflow files, including the shell in their run: steps (via shellcheck)
     - run: uvx --from actionlint-py actionlint
     # Relative links and #anchors in the Markdown docs; --offline skips

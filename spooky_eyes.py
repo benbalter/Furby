@@ -729,7 +729,7 @@ if __name__ == "__main__":
     parser.add_argument("--sting", default="./audio/new_audio/darkside_wav.a18", help="audio for 75-0-3-4")
     parser.add_argument("--no-song", action="store_true", help="leave 75-0-4-4 and 75-0-3-4 alone, to save space")
     parser.add_argument("--frames", type=int, default=FRAMES, help="frames per animation (default %d)" % FRAMES)
-    parser.add_argument("--preview", action="store_true", help="write build/eyes/<theme>.gif for every theme")
+    parser.add_argument("--preview", action="store_true", help="write build/eyes/<theme>.gif and .png for every theme")
     parser.add_argument("--probe", action="store_true", help="build DLCs that test what's unverified")
     parser.add_argument("--out-dir", default="./build")
     args = parser.parse_args()

@@ -9,7 +9,7 @@ A fork of [ctxis/Furby](https://github.com/ctxis/Furby) (Python tools for Furby 
 Python 3.11+ (`halloween.py` uses `tomllib`). Dependencies are in [pyproject.toml](pyproject.toml) (Pillow, a1800-codec, bleak; ruff in the `dev` group) and locked in `uv.lock`, so `uv run <script>.py` just works; ffmpeg for audio conversion.
 
 ```sh
-# All tests (CI runs exactly this on 3.11–3.13)
+# All tests (CI runs exactly this on 3.11–3.14)
 uv run python -m unittest test_furby -v
 # One class or test
 uv run python -m unittest test_furby.TestHalloween.test_build_show

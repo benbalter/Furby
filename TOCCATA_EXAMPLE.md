@@ -1,159 +1,86 @@
-# Toccata in D Minor - Example Configuration
+# Toccata in D Minor: an example
 
-This file demonstrates the conceptual steps for configuring a Furby to play 
-Bach's Toccata and Fugue in D Minor.
+This walks through making a Furby Connect play the opening of Bach's Toccata and Fugue in D Minor (BWV 565), which is public domain. The repo includes the first 20 seconds as [`audio/new_audio/toccata_in_d_minor_16khz.wav`](audio/new_audio/toccata_in_d_minor_16khz.wav) (16 kHz mono), and the Halloween show already plays 5 seconds of it ([`halloween/show.toml`](halloween/show.toml)'s `toccata` clip).
 
-## Quick Start
+## Quick start
 
-If you have:
-- Python 2.7 installed
-- A DLC file (e.g., `./dlc/dlc2/tu003410.dlc`)  
-- Toccata audio in .a18 format at `./audio/new_audio/toccata_in_d_minor.a18`
+From the repo's folder, with [uv](https://docs.astral.sh/uv/) and ffmpeg installed:
 
-Simply run:
 ```bash
-python2 demo_toccata.py
+uv run audioutils/encode_a18.py audio/new_audio/toccata_in_d_minor_16khz.wav build/toccata.a18 --duration 10
+uv run spooky_eyes.py --song build/toccata.a18   # build/spooky_demon.dlc, about 175 KB
+cp build/spooky_demon.dlc build/toccata.dlc      # flash.py needs a name of 8 letters or fewer
+uv run flash.py build/toccata.dlc                # with only this Furby awake
+uv run porch.py --action 75,0,4,4                # play it, with demon eyes
 ```
 
-## Manual Configuration Steps
+Audio costs about 2 KB a second, and a DLC has to stay under about 350 KB to upload, so 10 seconds (20 KB) leaves plenty of room. Keep generated files in `build/`, which git ignores: CI fails if a new `.a18`, `.wav` or `.dlc` is committed.
 
-### Step 1: Load the DLC
+## Doing it by hand with the `dlc` class
+
+[`demo_toccata.py`](demo_toccata.py) shows each step with the `dlc` class from [`furby.py`](furby.py).
+
+### 1. Load a DLC
+
 ```python
 from furby import dlc
 D = dlc("./dlc/dlc2/tu003410.dlc")
 ```
 
-### Step 2: Prepare Audio (Optional)
-Minify existing audio to speed up testing:
+### 2. Replace the audio for some actions
+
+An action code is a 4-tuple. Input 75 is the app's "video" actions: they play only when a phone or computer triggers them over Bluetooth, never from the Furby's own reactions to petting or noise, which come from its built-in memory whatever DLC is active.
+
 ```python
-D.dlc_sections["AMF"].minify_audio()
+toccata = "./build/toccata.a18"
+D.replace_audio((75, 0, 0, 0), [toccata])
+D.replace_audio((75, 0, 0, 1), [toccata])
+D.replace_audio((75, 0, 0, 3), [toccata])
 ```
 
-### Step 3: Replace Audio for Action Codes
-Action codes are 4-tuples that trigger specific Furby responses. Common ones:
-- `(75, 0, 0, 0)` - Button press
-- `(75, 0, 0, 1)` - Alternative button press  
-- `(75, 0, 0, 3)` - Another common action
+Pass several files to play them in turn, as `create_multi_track_toccata()` does with an intro, main theme and climax:
 
-Replace audio for these actions with Toccata:
 ```python
-toccata_file = "./audio/new_audio/toccata_in_d_minor.a18"
-
-D.replace_audio((75, 0, 0, 0), [toccata_file])
-D.replace_audio((75, 0, 0, 1), [toccata_file])
-D.replace_audio((75, 0, 0, 3), [toccata_file])
+D.replace_audio((75, 0, 0, 0), ["./build/toccata_intro.a18", "./build/toccata_main.a18", "./build/toccata_climax.a18"])
 ```
 
-### Step 4: Build the New DLC
+### 3. Build it
+
 ```python
-D.build("./toccata_furby.dlc")
+D.build("./build/toccata.dlc")
 ```
 
-### Step 5: Upload to Furby
-Use the Furby Connect app or other tools to upload `toccata_furby.dlc` to your Furby.
+This DLC keeps all of the stock audio, so it comes out at about 1.2 MB, far over the roughly 350 KB that uploads without timing out. `D.dlc_sections["AMF"].minify_audio()` cuts every stock track to 128 bytes, but `make_toccata_furby(minify=True)` still comes out a little over the limit. To get something you can flash, use `spooky_eyes.py` as in the quick start: it starts from a smaller base, the same build as Context's `hacked.dlc`, and stops with an error for anything too big to upload.
 
-## Advanced: Multi-Track Toccata
+### 4. Flash it and play it
 
-For a more dramatic experience, split Toccata into segments:
-
-### Prepare Three Audio Files:
-- `toccata_intro.a18` - The iconic opening (measures 1-15)
-- `toccata_main.a18` - The main theme (measures 16-90)  
-- `toccata_climax.a18` - The dramatic fugue (measures 91-end)
-
-### Use Multi-Track Function:
-```python
-D.replace_audio((75, 0, 0, 0), [
-    "./audio/new_audio/toccata_intro.a18",
-    "./audio/new_audio/toccata_main.a18",
-    "./audio/new_audio/toccata_climax.a18"
-])
-```
-
-This will play all three segments in sequence when the action is triggered.
-
-## Audio Preparation Tips
-
-### Getting Toccata Audio:
-1. Find a public domain recording of Toccata and Fugue in D Minor (BWV 565)
-2. Edit to desired length (15-30 seconds recommended)
-3. Convert to .a18 format:
-   - **Windows**: Use `audioutils/convert.py` with a1800.dll
-   - **Mac/Linux**: Use `audioutils/convert_mac_linux.py` (requires Wine and FFmpeg)
-   - See `audio/new_audio/README.md` for detailed instructions
-
-### Mac/Linux Quick Start:
 ```bash
-# Install dependencies
-brew install wine-stable ffmpeg  # Mac
-# or: sudo apt-get install wine ffmpeg  # Linux
-
-# Convert audio
-cd audioutils
-python convert_mac_linux.py toccata.mp3 ../audio/new_audio/toccata_in_d_minor.a18 a1800.dll
+uv run flash.py build/toccata.dlc
+uv run porch.py --action 75,0,0,0
 ```
 
-### Recommended Sections:
-- **Opening**: 0:00-0:15 - The iconic dramatic opening
-- **Main Theme**: 0:15-0:45 - The flowing toccata section
-- **Fugue**: 2:30-3:00 - The complex fugue section
-- **Climax**: 8:00-8:30 - The thunderous conclusion
+See [Flashing a DLC](README.md#flashing-a-dlc) for the browser route and options.
 
-### Audio Format Requirements:
-- Format: GeneralPlus .a18 (proprietary codec)
-- Sample Rate: 16000 Hz
-- Channels: Mono
-- Typical Size: ~20-30 KB for 15-30 seconds
+## Picking a snippet
+
+`encode_a18.py` takes `--start` and `--duration`, so you can cut any recording without editing it first, as long as ffmpeg reads it:
+
+```bash
+uv run audioutils/encode_a18.py my_toccata.mp3 build/toccata_climax.a18 --start 8:00 --duration 10
+```
+
+Rough spots in a full recording: the opening at 0:00–0:15, the flowing toccata at 0:15–0:45, and the thunderous ending in the last 30 seconds. Timings vary by performer.
 
 ## Troubleshooting
 
-### "File not found" errors
-- Ensure audio files exist at the specified paths
-- Check that DLC file path is correct
+- **`the Furby keeps 8.3 names, so use 8 letters or fewer`**: rename the DLC, as in the quick start.
+- **`uploads time out above about 350 KB`, or an upload times out**: use a shorter snippet, or build with `spooky_eyes.py` rather than the full stock DLC.
+- **The Furby doesn't play it**: trigger the action over Bluetooth (`porch.py --action`, or FurBLE's custom action box). Petting, tickling and noises play the Furby's built-in reactions, not the DLC's.
+- **It sounds distorted**: `encode_a18.py` already resamples to 16 kHz mono. Try a quieter source, since the Furby's speaker clips easily.
 
-### "SyntaxError: Missing parentheses in call to 'print'"
-- You're running Python 3. This project requires Python 2.7
-- Use `python2` command instead of `python`
+## Related files
 
-### Timeout or "undefined" errors during DLC flash
-- **Fixed**: The `minify_audio()` function has been improved with safer defaults
-- The function now uses 16000 bytes (~1 second) minimum instead of 128 bytes
-- By default, the demo script keeps original audio intact (minify disabled)
-- If you need faster testing uploads, you can enable minification safely now:
-
-Example:
-```python
-from demo_toccata import make_toccata_furby
-# Default: minify disabled, full audio preserved
-make_toccata_furby()
-
-# For faster testing: enable minify with safe defaults
-make_toccata_furby(minify=True)  # Now safe with 1-second minimum
-```
-
-### Furby doesn't play the audio
-- Verify the DLC was uploaded successfully
-- Try triggering different actions (button presses, tickles, etc.)
-- The action codes may vary between Furby firmware versions
-- Make sure you converted the WAV to .a18 format before building the DLC
-
-### Audio sounds distorted
-- Ensure source audio was converted at 16kHz (not 44.1kHz or 48kHz)
-- Keep audio segments under 30 seconds
-- The improved `minify_audio()` function now uses safer defaults (16000 bytes minimum)
-
-## Why Toccata?
-
-Toccata and Fugue in D Minor (BWV 565) by Johann Sebastian Bach is one of 
-the most famous organ pieces ever written. Its dramatic, haunting sound is 
-often associated with horror movies and Halloween. Having your Furby play 
-this piece creates a delightfully theatrical and slightly creepy effect!
-
-The piece is also in the public domain, making it ideal for this project.
-
-## Related Files
-
-- `demo_toccata.py` - Complete working implementation
-- `audio/new_audio/README.md` - Audio conversion instructions
-- `furby.py` - Core DLC manipulation library
-- `demo.py` - Example showing eye animation replacement
+- [`demo_toccata.py`](demo_toccata.py): the `dlc` class version
+- [`audio/new_audio/README.md`](audio/new_audio/README.md): the bundled audio files
+- [`audioutils/README.md`](audioutils/README.md): the conversion tools
+- [`spooky_eyes.py`](spooky_eyes.py): builds a DLC with custom eyes and a song

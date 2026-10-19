@@ -1,17 +1,44 @@
 # Audio Utils
 
-This directory contains utilities for working with Furby Connect audio files in the a18 format.
+Tools for Furby Connect audio, in GeneralPlus's A1800 `.a18` format. Run them from the repo's folder with [uv](https://docs.astral.sh/uv/), which installs their Python packages from [`pyproject.toml`](../pyproject.toml) the first time.
 
-## Requirements
+## No DLL needed (any OS)
 
-`encode_a18.py` (any audio → .a18) and `extract_voice.py` (every clip in a DLC → WAV) use the open-source [a1800_codec](https://github.com/John-K/a1800_codec) (`pip install a1800-codec`) and run on any OS with Python 3.11+ and ffmpeg. `freesound_fetch.py` downloads public-domain sound effects. The older scripts below need:
+These need Python 3.11+ and ffmpeg, and use the open-source [a1800_codec](https://github.com/John-K/a1800_codec).
+
+### encode_a18.py
+
+Converts any audio ffmpeg reads to `.a18`, resampled to 16 kHz mono. `--start` and `--duration` cut a snippet.
+
+```bash
+uv run audioutils/encode_a18.py monster_mash.mp3 build/monster_mash.a18 --start 0:30 --duration 10
+```
+
+### extract_voice.py
+
+Decodes every clip in a DLC to WAV: the stock DLC (`dlc/dlc2/tu003410.dlc`) by default, into `build/voice/` (`-o` to change). The stock clips are Hasbro's, so keep them in `build/` and don't share them.
+
+```bash
+uv run audioutils/extract_voice.py [some.dlc] [-o build/voice]
+```
+
+### freesound_fetch.py
+
+Searches [Freesound](https://freesound.org) for public-domain (CC0) sounds only, and saves the top-rated results trimmed and levelled for a Furby, in `build/sfx/` with a `credits.csv`. It needs a free API key (<https://freesound.org/apiv2/apply>) in `FREESOUND_API_KEY`; with 1Password, keep an `op://` reference in a `.env` file and run it under `op run --env-file=.env --`.
+
+```bash
+FREESOUND_API_KEY=your-key-here uv run audioutils/freesound_fetch.py "witch cackle" scream -n 2
+```
+
+`-n` sets how many sounds per search, `-s` the length to trim to, and `--loudness` the target loudness (LUFS).
+
+## With GeneralPlus's A1800.DLL (older)
+
+The scripts below came before `encode_a18.py` and need:
 
 - **a1800.dll**: Download the [GeneralPlus Gadget utility](http://www.generalplus.com/1LVlangLNxxSVyySNservice_n_support_d) and extract the a1800.dll file from it
-- **Python 3.11+** with the following packages:
-  - `pydub` (for MP3 support): `pip install pydub`
-  - `Pillow` (already in requirements.txt)
-- **ffmpeg** (for MP3 conversion): Required by pydub for MP3 support
-- **Windows OS**: The a1800.dll only works on Windows
+- **Windows**, or Wine on a Mac or Linux (`convert_mac_linux.py`)
+- **pydub** for MP3 input (`pip install pydub`), and **ffmpeg**, which pydub uses
 
 ## Scripts
 
@@ -45,9 +72,17 @@ python convert_to_a18.py input.wav -d path/to/a1800.dll
 - Configurable sample rate (default: 16000 Hz, recommended for Furby)
 - Command-line interface for easy automation
 
+### convert_mac_linux.py
+
+Converts any audio to `.a18` on a Mac or Linux by running a1800.dll under Wine, after converting it to 16 kHz mono WAV with ffmpeg (`brew install wine-stable ffmpeg`, or `sudo apt-get install wine ffmpeg`).
+
+```bash
+python audioutils/convert_mac_linux.py input.mp3 build/output.a18 path/to/a1800.dll
+```
+
 ### extract_audio.py
 
-Extracts the GeneralPlus a18-encoded audio files from a DLC file.
+Extracts the GeneralPlus a18-encoded audio files from a DLC file, from Context's original tools. `extract_voice.py` does this and decodes them too.
 
 **Note**: This is a rough script that requires customization of file/directory names.
 

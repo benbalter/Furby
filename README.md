@@ -122,6 +122,8 @@ The two Furbies are identical, so the show tells them apart only by which DLC ea
 4. Take its batteries out, put the batteries in the other Furby, and flash `build/halloween/blue.dlc` the same way. Label it "blue".
 5. Lost track of which is which? Wake just one and run `uv run flash.py --list`: it prints the Furby's address and `active DLC: pink` (or `blue`).
 
+`uv run deploy.py` walks you through this whole step, and builds first: see [Deploy and test in two commands](#deploy-and-test-in-two-commands).
+
 If you change anything in `show.toml` later, build again: the last line says which Furbies need reflashing, if any.
 
 ### 6. Run the show
@@ -138,7 +140,7 @@ Two Furby Connects close together start singing to each other, and while they do
 
 If a Furby drops during the show, Terminal says so (`Blue dropped. Pink is still connected; wake blue again.`), and if nobody turns up for about a minute it suggests the Furbies are singing together.
 
-The show keeps both Furbies awake and plays a random scene every 20 to 45 seconds. Press Enter when trick-or-treaters walk up to play a greeting. Press Ctrl-C to stop. Keep the computer close to the Furbies, since Bluetooth's range is short.
+The show keeps both Furbies awake and plays a random scene every 20 to 45 seconds (`every` in `show.toml`). Press Enter when trick-or-treaters walk up to play a greeting. Press Ctrl-C to stop: the show turns the antennas off and lets go of the Furbies. To test one piece, `uv run porch.py --scene 0` plays one scene on the Furbies and `--clip pink.boo` one line; `--list` shows the Furbies in range and their DLCs. Keep the computer close to the Furbies, since Bluetooth's range is short.
 
 To run the show without a computer on the night, an ESP32 board can do the same job; see [Running the show from an ESP32](#running-the-show-from-an-esp32).
 
@@ -208,7 +210,7 @@ def main():
 The class is most useful when instantiated with an existing Furby Connect DLC file. This can be done by passing the path to such a file when creating an instance of the class:
 
 ```
-D = dlc("./dlc/dlc1/tu012700.dlc")
+D = dlc("./dlc/dlc2/tu003410.dlc")
 ```
 
 You can then access each of the various sections contained in the DLC via the `dlc_sections` dictionary:
@@ -331,7 +333,7 @@ new_cels = D.dlc_sections["CEL"].quarterize("./my_gif.gif", new_palette)
 
 ### replace_track()
 
-`D.dlc_sections["AMF"].insert_track()` will replace one of the tracks in the AMF section with a track supplied by you. It can be used in the following way:
+`D.dlc_sections["AMF"].replace_track()` will replace one of the tracks in the AMF section with a track supplied by you. It can be used in the following way:
 
 ```
 # Replace the nth audio track.
@@ -345,7 +347,7 @@ D.dlc_sections["AMF"].replace_track(n, "mytrack.a18")
 
 ```
 # Shrink a DLC
-D = dlc("./dlc/dlc1/tu012700.dlc")
+D = dlc("./dlc/dlc2/tu003410.dlc")
 D.dlc_sections["AMF"].minify_audio()
 D.build("/tmp/minified_dlc.dlc")
 ```
@@ -376,9 +378,9 @@ uv run audioutils/encode_a18.py monster_mash.mp3 monster_mash.a18 --start 0:30 -
 uv run spooky_eyes.py --song monster_mash.a18
 ```
 
-Audio costs about 2 KB a second, so keep songs short enough for the DLC to stay under about 350 KB. The older DLL-based tools below still work too.
+Audio costs about 2 KB a second, so keep songs short enough for the DLC to stay under about 350 KB. Write `.a18` files to `build/` (or anywhere outside the repo): CI fails if audio other than the files that came with the repo is committed. `uv run audioutils/extract_voice.py` goes the other way, decoding every clip in a DLC to WAV (in `build/voice/` by default).
 
-A GitHub Actions workflow and command-line tool are available to convert audio files (MP3 or WAV) to the a18 format required by Furby Connect.
+The older tools below need GeneralPlus's Windows-only A1800.DLL: a GitHub Actions workflow that runs it on a Windows runner, and a command-line tool.
 
 ### Using the CI Workflow
 
@@ -406,22 +408,27 @@ See [audioutils/README.md](audioutils/README.md) for more information.
 
 ## Example: Making Furby Play Toccata in D Minor
 
-Want to give your Furby a dramatic, theatrical personality? Check out `demo_toccata.py` for a complete example of how to make your Furby play Bach's famous Toccata and Fugue in D Minor.
+The repo includes the opening 20 seconds of Bach's Toccata and Fugue in D Minor (public domain) as `audio/new_audio/toccata_in_d_minor_16khz.wav`; the Halloween show already plays 5 seconds of it. To put it on a Furby by itself, encode a snippet and build it into a DLC with the spooky eyes:
+
+```bash
+uv run audioutils/encode_a18.py audio/new_audio/toccata_in_d_minor_16khz.wav build/toccata.a18 --duration 10
+uv run spooky_eyes.py --song build/toccata.a18   # build/spooky_demon.dlc, about 175 KB
+cp build/spooky_demon.dlc build/toccata.dlc      # the Furby stores 8.3 names, so flash.py needs 8 letters or fewer
+uv run flash.py build/toccata.dlc
+uv run porch.py --action 75,0,4,4
+```
+
+[`demo_toccata.py`](demo_toccata.py) shows the same idea with the `dlc` class directly:
 
 ```python
 from furby import dlc
 
-# Load an existing DLC
 D = dlc("./dlc/dlc2/tu003410.dlc")
-
-# Replace audio for a button press action with Toccata
-D.replace_audio((75,0,0,0), ["./audio/new_audio/toccata_in_d_minor.a18"])
-
-# Build the new DLC
-D.build("./toccata_furby.dlc")
+D.replace_audio((75,0,0,0), ["./build/toccata.a18"])
+D.build("./build/toccata.dlc")
 ```
 
-For more details on preparing audio files and advanced multi-track configurations, see the `audio/new_audio/README.md` file and `demo_toccata.py` script.
+That keeps all of the stock DLC's audio, so the result is about 1.2 MB, far over what uploads (about 350 KB); even `make_toccata_furby(minify=True)` comes out a little over. Use it to learn the API, and `spooky_eyes.py` to make something you can flash. See [TOCCATA_EXAMPLE.md](TOCCATA_EXAMPLE.md) for more.
 
 ## Example: Spooky Halloween eyes
 
@@ -433,19 +440,19 @@ uv run spooky_eyes.py --theme pumpkin --song my_song.a18 --sting my_scream.a18
 uv run spooky_eyes.py --preview           # build/eyes/<theme>.gif for every theme
 ```
 
-It writes `build/spooky_<theme>.dlc`, plus a preview GIF of the eyes, rendered back out of the DLC, in `build/<theme>/`. The eyes play on actions `75-0-4-4` (with the song), `75-0-3-4` (with the sting) and `75-0-0-3`.
+It writes `build/spooky_<theme>.dlc`, plus a preview GIF of the eyes, rendered back out of the DLC, in `build/<theme>/`. `--no-song` leaves the stock audio slots alone, and `--frames` sets the animation's length (38 by default). The eyes play on actions `75-0-4-4` (with the song), `75-0-3-4` (with the sting) and `75-0-0-3`.
 
 Each theme is three keyframes played across the animation's 38 frames in its own pattern, since every keyframe costs about 12 KB. The Halloween show puts several themes in each Furby's DLC, one animation each, and its clips take turns through them (see `eyes` in [halloween/show.toml](halloween/show.toml)). Both eyes share the same cels, which halves their cost; test DLCs on a Furby showed garbled eyes when the eyes shared cels in a DLC with under 16 cels, so the build pads it to 16. A DLC with more than one animation showed the previous DLC's eyes instead of its own, so the show uses one animation per Furby. `uv run spooky_eyes.py --probe` builds the test DLCs in `build/eyes_probe2/`, and `uv run eyecheck.py` checks a DLC against what has worked.
 
-The build copies Context's `hacked.dlc`, which [FurBLE](https://github.com/pdjstone/furby-web-bluetooth) ships and which is known to flash: every stock audio track is cut to 128 bytes, and apart from audio and eyes the result matches `hacked.dlc` section for section. The script refuses to write anything over about 350 KB, because bigger uploads time out.
+The DLC is built the same way as Context's `hacked.dlc`, which [FurBLE](https://github.com/pdjstone/furby-web-bluetooth) ships and which is known to flash: every stock audio track is cut to 128 bytes, and apart from audio and eyes the result matches `hacked.dlc` section for section. The script stops with an error for anything over about 350 KB, because bigger uploads time out.
 
-A DLC only changes what plays when a phone or computer triggers an action over Bluetooth. The Furby's own reactions to noises, petting and so on come from its built-in memory, so they sound the same with any DLC active. To try the eyes, flash the DLC (below), then run `uv run porch.py --action 75,0,4,4` (or trigger `75 0 4 4` from FurBLE's custom action box).
+A DLC only changes what plays when a phone or computer triggers an action over Bluetooth. The Furby's own reactions to noises, petting and so on come from its built-in memory, so they sound the same with any DLC active. To try the eyes, copy the DLC to a name of 8 letters or fewer (`cp build/spooky_demon.dlc build/demon.dlc`), flash it (below), then run `uv run porch.py --action 75,0,4,4` (or trigger `75 0 4 4` from FurBLE's custom action box).
 
 ### Checking before flashing
 
-`python emulate.py` runs every scene in `build/halloween/show.json` against virtual Furbies that answer like real ones (`20:0c`, `20:07` while still busy, `20:0e`, DLC info, the upload `flash.py` does), on a virtual clock, and reports lines that would go silent or be skipped and how long each scene really takes. `--worst` assumes each body movement takes its longest measured time; `--durations file.json` takes measured ones.
+`uv run emulate.py` runs every scene in `build/halloween/show.json` against virtual Furbies that answer like real ones (`20:0c`, `20:07` while still busy, `20:0e`, DLC info, the upload `flash.py` does), on a virtual clock, and reports lines that would go silent or be skipped and how long each scene really takes. `--worst` assumes each body movement takes its longest measured time; `--durations file.json` takes measured ones.
 
-`python eyecheck.py build/halloween/*.dlc` composes each custom animation the way the Furby does (all four layers, flip bits, see-through pixels, both candidate palette rules) and fails a DLC that won't show as drawn, or that leaves what's been seen working on a Furby: 16 SPR playlists and a stock-sized SPR. `--gif DIR` writes what it composed, and `--stale-cel previous.dlc` shows what the Furby draws if the new cels don't load, which is how `probe.dlc` (32 playlists) came out on hardware.
+`uv run eyecheck.py build/halloween/*.dlc` composes each custom animation the way the Furby does (all four layers, flip bits, see-through pixels, both candidate palette rules) and fails a DLC that won't show as drawn, or that leaves what's been seen working on a Furby: 16 SPR playlists, a stock-sized SPR, and eyes that share cels only in a CEL section of at least 16 cels. It warns about a DLC bigger than any custom one whose eyes have shown. `--gif DIR` writes what it composed, and `--stale-cel previous.dlc` shows what the Furby draws if the new cels don't load, which is how `probe.dlc` (32 playlists) came out on hardware.
 
 ## Flashing a DLC
 
@@ -518,7 +525,7 @@ While a Furby speaks, its antenna plays a light that matches the clip's eyes and
 
 Change it in [`halloween/show.toml`](halloween/show.toml) with `light` on a clip or a whole Furby: an effect (`off`, `steady`, `voice`, `candle`, `pulse`, `wisp`, `lightning`, `cycle`), an eye theme's name (`light = "ghost"`), or a table such as `light = { effect = "pulse", color = [0, 255, 0] }`. A Furby-wide `light = { color = [255, 0, 0] }` keeps one colour for all its lines, which makes it easier to tell who's talking. A Furby's `antenna` colour is only a fallback now, for lights with no colour of their own. In `[show]`, `light_hz` (default 10, at most 15) sets how often the antenna updates, and `idle_glow = 0.15` keeps each Furby in a scene glowing dimly while the other one speaks (off by default).
 
-`python porch.py --rehearse` draws each antenna as a coloured block in the terminal while the clips play, so you can tune lights without the Furbies. On the Furbies themselves, the light runs alongside each line and never delays a trigger, and the antenna goes dark when the line ends or a scene is cut short. Not yet checked on a real Furby: whether the antenna dims smoothly or only switches colour, and whether 10 updates a second interferes with playback. If lines stutter, lower `light_hz`; if dimmed colours look wrong, use `light = "steady"`.
+`uv run porch.py --rehearse` draws each antenna as a coloured block in the terminal while the clips play, so you can tune lights without the Furbies. On the Furbies themselves, the light runs alongside each line and never delays a trigger, and the antenna goes dark when the line ends or a scene is cut short. Not yet checked on a real Furby: whether the antenna dims smoothly or only switches colour, and whether 10 updates a second interferes with playback. If lines stutter, lower `light_hz`; if dimmed colours look wrong, use `light = "steady"`.
 
 ## Checking your setup and probing a Furby
 
@@ -528,7 +535,7 @@ Change it in [`halloween/show.toml`](halloween/show.toml) with `light` on a clip
 
 ### Deploy and test in two commands
 
-`uv run deploy.py` does steps 2 and 3 for you. It builds the show, then for each Furby asks you to wake just that one, says which DLC it has now, blinks its antenna in its show color, and flashes it once you confirm it's the right one. It refuses to put both DLCs on the same Furby, and `--esp32` copies the show to the board afterwards. Wake one Furby at a time: two identical Furbies that see each other pair up and stop showing up. `--only blue` does just one, `--no-build` flashes what's already built, and `--yes` asks nothing, for scripts.
+`uv run deploy.py` does steps 3 and 5 for you. It builds the show, then for each Furby asks you to wake just that one, says which DLC it has now, blinks its antenna in its show color, and flashes it once you confirm it's the right one. It refuses to put both DLCs on the same Furby, and `--esp32` copies the show to the board afterwards. Wake one Furby at a time: two identical Furbies that see each other pair up and stop showing up. `--only blue` does just one, `--no-build` flashes what's already built, `--skip-missing` builds without clips you haven't made yet (as in step 3), `--packet-delay 30` sends more slowly, and `--yes` asks nothing, for scripts.
 
 Then run `uv run porch.py --check` and wake the Furbies, one and then the other once it connects. It plays every clip once on each Furby and uses the Furby's own replies to report which clips played, which were skipped because the Furby was still busy, and which got no reply. It also times each clip's whole sequence (movement and eyes as well as audio) and flags any that run well past their audio, since the Furby can't play its next line until the sequence ends. It checks each Furby's DLC against `show.json`, writes the timings to `build/halloween/timings.json`, and exits non-zero if anything failed.
 

@@ -30,31 +30,28 @@ the famous Toccata and Fugue in D Minor. The haunting organ piece is
 perfect for giving your Furby a dramatic, theatrical personality.
 
 REQUIREMENTS:
-    - Python 2.7 (this codebase uses Python 2 syntax)
+    - Python 3.11+ and uv (uv installs Pillow and the other packages)
     - A Furby Connect DLC file (e.g., ./dlc/dlc2/tu003410.dlc)
-    - Toccata audio file in .a18 format (see audio/new_audio/README.md for conversion instructions)
-    - Pillow library installed (pip install Pillow)
+    - Toccata audio in .a18 format at ./build/toccata.a18:
+      uv run audioutils/encode_a18.py audio/new_audio/toccata_in_d_minor_16khz.wav build/toccata.a18 --duration 10
 
 USAGE:
-    python2 demo_toccata.py
-    
-    OR if Python 2 is your default:
-    python demo_toccata.py
+    uv run demo_toccata.py
 
-The script will create a new DLC file (toccata_furby.dlc) that can be 
-uploaded to your Furby Connect.
-
-NOTE: If you get syntax errors about 'print' statements, you are running 
-Python 3. This project requires Python 2.7.
+The script will create a new DLC file (build/toccata.dlc). It keeps the
+stock DLC's audio, so it is far too big to upload (about 1.2 MB, against
+about 350 KB); it shows how the dlc class works. To make one you can flash,
+see TOCCATA_EXAMPLE.md, which uses spooky_eyes.py --song.
 """
 
 from furby import dlc
+from spooky_eyes import MAX_UPLOAD
 import os
 
 
 def make_toccata_furby(dlc_in="./dlc/dlc2/tu003410.dlc", 
-                       toccata_audio="./audio/new_audio/toccata_in_d_minor.a18",
-                       dlc_out="./toccata_furby.dlc",
+                       toccata_audio="./build/toccata.a18",
+                       dlc_out="./build/toccata.dlc",
                        minify=False):
     """
     Create a Furby DLC that plays Toccata in D Minor.
@@ -82,7 +79,7 @@ def make_toccata_furby(dlc_in="./dlc/dlc2/tu003410.dlc",
     if not os.path.exists(toccata_audio):
         print("WARNING: Toccata audio file not found: %s" % toccata_audio)
         print("Please prepare a Toccata in D Minor audio file in .a18 format.")
-        print("See audio/new_audio/README.md for instructions on audio conversion.")
+        print("See TOCCATA_EXAMPLE.md for how to make it.")
         return
     
     print("Loading DLC file...")
@@ -122,15 +119,19 @@ def make_toccata_furby(dlc_in="./dlc/dlc2/tu003410.dlc",
     D.build(dlc_out)
     
     print("Done! Your Toccata-enabled Furby DLC is ready.")
-    print("Upload %s to your Furby Connect to hear it play Toccata in D Minor!" % dlc_out)
+    size = os.path.getsize(dlc_out)
+    if size > MAX_UPLOAD:
+        print("It's %d KB, too big to upload (about %d KB at most); see TOCCATA_EXAMPLE.md for one you can flash." % (size // 1000, MAX_UPLOAD // 1000))
+    else:
+        print("Flash it with: uv run flash.py %s" % dlc_out)
     print("\nNOTE: Be careful when uploading custom DLCs - bad DLCs can make your Furby unhappy.")
 
 
 def create_multi_track_toccata(dlc_in="./dlc/dlc2/tu003410.dlc",
-                                 toccata_intro="./audio/new_audio/toccata_intro.a18",
-                                 toccata_main="./audio/new_audio/toccata_main.a18", 
-                                 toccata_climax="./audio/new_audio/toccata_climax.a18",
-                                 dlc_out="./toccata_furby_multi.dlc",
+                                 toccata_intro="./build/toccata_intro.a18",
+                                 toccata_main="./build/toccata_main.a18", 
+                                 toccata_climax="./build/toccata_climax.a18",
+                                 dlc_out="./build/toccatam.dlc",
                                  minify=False):
     """
     Create a Furby DLC with multiple segments of Toccata in D Minor.
@@ -160,7 +161,7 @@ def create_multi_track_toccata(dlc_in="./dlc/dlc2/tu003410.dlc",
     if missing_files:
         print("WARNING: Audio files not found: %s" % missing_files)
         print("Please prepare Toccata audio segments in .a18 format.")
-        print("See audio/new_audio/README.md for instructions.")
+        print("See TOCCATA_EXAMPLE.md for how to make them.")
         return
     
     print("Loading DLC file...")

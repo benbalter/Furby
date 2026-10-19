@@ -1,73 +1,19 @@
-# Toccata and Fugue in D Minor - Conversion Status
+# Toccata and Fugue in D Minor: the included file
 
-## Included Files
+- **`toccata_in_d_minor_16khz.wav`**: the first 20 seconds of Bach's Toccata and Fugue in D Minor (BWV 565), from a public-domain recording. 16-bit PCM WAV, 16 kHz, mono. The famous opening chords take the first 10 seconds and the flowing toccata the next 10.
 
-This directory contains a prepared audio file ready for conversion to .a18 format:
+The Halloween show uses it as is: [`halloween/show.toml`](../../halloween/show.toml)'s `toccata` clip cuts 5 seconds from it, and `halloween.py` converts it while building.
 
-- **`toccata_in_d_minor_16khz.wav`** - First 20 seconds of Toccata and Fugue in D Minor
-  - Format: 16-bit PCM WAV
-  - Sample Rate: 16000 Hz (16 kHz)
-  - Channels: Mono
-  - Duration: ~20 seconds
-  - Source: Public domain recording
+## Converting it to .a18
 
-This file is properly formatted and ready to be converted to .a18 format.
-
-## Converting to .a18 Format
-
-To complete the conversion to .a18 format (required for Furby), you need:
-
-### Option 1: Windows Conversion
-
-1. Download the [GeneralPlus Gadget utility](http://www.generalplus.com/)
-2. Extract `a1800.dll` from the utility
-3. Use the Windows conversion script:
-   ```bash
-   # Modify audioutils/convert.py to use toccata_in_d_minor_16khz.wav as input
-   python audioutils/convert.py
-   ```
-
-### Option 2: Mac/Linux Conversion
-
-1. Install Wine and FFmpeg:
-   ```bash
-   # Mac
-   brew install wine-stable ffmpeg
-   
-   # Linux
-   sudo apt-get install wine ffmpeg
-   ```
-
-2. Download and extract `a1800.dll` from GeneralPlus Gadget utility
-
-3. Use the Mac/Linux conversion script:
-   ```bash
-   cd ../../audioutils
-   python convert_mac_linux.py \
-       ../audio/new_audio/toccata_in_d_minor_16khz.wav \
-       ../audio/new_audio/toccata_in_d_minor.a18 \
-       a1800.dll
-   ```
-
-### Why Two Steps?
-
-The .a18 format uses a proprietary GeneralPlus codec that requires the Windows-only `a1800.dll` library. The WAV file provided here is already in the correct format (16kHz mono), so the conversion to .a18 should be straightforward once you have the DLL.
-
-## Using with Furby
-
-Once you have `toccata_in_d_minor.a18`, you can use it with the demo script:
+From the repo's folder, on any OS, with ffmpeg installed:
 
 ```bash
-cd ../..
-python demo_toccata.py
+uv run audioutils/encode_a18.py audio/new_audio/toccata_in_d_minor_16khz.wav build/toccata.a18 --duration 10
 ```
 
-This will create a Furby DLC file with Toccata and Fugue in D Minor!
+That uses the open-source [a1800_codec](https://github.com/John-K/a1800_codec), so it needs no Windows DLL. Keep the output in `build/`: CI fails if new audio is committed. The older A1800.DLL tools (`audioutils/convert_to_a18.py` on Windows, `audioutils/convert_mac_linux.py` through Wine) still work; see [audioutils/README.md](../../audioutils/README.md).
 
-## About the Audio
+## Using it with a Furby
 
-This excerpt includes the iconic opening of Bach's Toccata and Fugue in D Minor (BWV 565), featuring:
-- The famous dramatic opening chords (0-10 seconds)
-- The flowing toccata section (10-20 seconds)
-
-This is one of the most recognizable pieces of classical music and creates a perfect dramatic effect for your Furby!
+[TOCCATA_EXAMPLE.md](../../TOCCATA_EXAMPLE.md) builds it into a DLC small enough to flash, flashes it, and plays it.

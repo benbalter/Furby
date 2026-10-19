@@ -14,6 +14,7 @@ USAGE:
 """
 
 import argparse
+import os
 import struct
 import subprocess
 
@@ -33,6 +34,7 @@ def encode(src, dst, start=None, duration=None):
 
     a18 = bytes(a1800_codec.encode(pcm, BITRATE))
     frames = a18[6:]
+    os.makedirs(os.path.dirname(dst) or ".", exist_ok=True)  # e.g. build/ in a fresh clone
     # The codec's length field counts only frame bytes. GeneralPlus's tools,
     # and furby.py's track reader, also count the 2-byte bitrate after it;
     # without this, the last frame of every clip gets cut short.

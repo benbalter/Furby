@@ -88,12 +88,13 @@ uv run emulate.py [--worst] [--scene N] [--durations measured.json]  # run show.
 - `extract_voice.py` decodes a DLC's clips to WAV.
 - `freesound_fetch.py` fetches CC0-only effects. It reads `FREESOUND_API_KEY` from the environment (run it under `op run`).
 - The older `convert*.py` scripts need the Windows-only A1800.DLL.
+- [demo_toccata.py](demo_toccata.py) keeps the stock DLC's audio, so its output (about 1.2 MB) is too big to upload; [TOCCATA_EXAMPLE.md](TOCCATA_EXAMPLE.md) builds a flashable one with `spooky_eyes.py --song`. `flash.py` refuses names over 8 characters, so `spooky_<theme>.dlc` has to be copied to a shorter name first.
 
 **Flashing.** `uv run flash.py <file>.dlc` (with only that Furby awake, or `--address`) does what [benbalter/furby-web-bluetooth](https://github.com/benbalter/furby-web-bluetooth) "Upload Custom" does, from the terminal: `0x50` announce, 20-byte FileWrite packets at 15 ms with Nordic packet acks (`0x09`) for flow control, then `0x73` checksum check, `0x60` load, `0x61` activate. It deletes the stored DLCs first with `0x74`, which replaced (on a real Furby) the tongue-and-tail reset that FurBLE needs before each upload. The show's DLCs take about 2–3½ minutes. Identical Furbies differ only by active DLC, so flash each with only it awake; flashing both with `pink.dlc` (easy in FurBLE) makes the show log "Two Furbies have pink.dlc" and drop the second. In FurBLE: serve it over http, not `file://`; reset before each upload; `?packetDelay=<ms>` slows it down.
 
 ## Conventions
 
-- **Context's original files** keep their own style (tabs, `%` formatting) and are excluded from ruff in [pyproject.toml](pyproject.toml): `furby.py`, `demo*.py`, `minify_dlc.py`, `audioutils/convert*.py`, `extract_audio.py`. Don't reformat them.
+- **Context's original files** keep their own style (tabs, `%` formatting) and are excluded from ruff in [pyproject.toml](pyproject.toml): `furby.py`, `demo*.py`, `minify_dlc.py`, `audioutils/convert*.py`, `audioutils/extract_audio.py`. Don't reformat them.
 - **New files** carry `SPDX-FileCopyrightText: 2026 Ben Balter` / `SPDX-License-Identifier: MIT` headers, with the license text in [LICENSES/MIT.txt](LICENSES/MIT.txt). Context's files have no stated license, so never add MIT headers to them.
 - **Generated output goes in `build/`** (gitignored): built DLCs, extracted Furby audio, Freesound clips, and cloned Furby voices.
   - Cloned voices and DLCs built from the stock one are Hasbro-derived, so never commit or publish them.

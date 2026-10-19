@@ -6,6 +6,8 @@ This document provides examples of how to use the audio conversion CI workflow.
 
 The workflow allows you to convert audio files (MP3 or WAV) to a18 format compatible with Furby Connect DLC files. The conversion runs on a Windows GitHub Actions runner and produces an a18 file that can be downloaded as an artifact.
 
+You probably don't need it: `uv run audioutils/encode_a18.py input.mp3 build/output.a18` does the same on any OS with no DLL (see the [audioutils README](../../audioutils/README.md)). The workflow is for when you'd rather use GeneralPlus's own encoder.
+
 ## Prerequisites
 
 Before using the workflow, you need to configure the a1800.dll. See the [audioutils README](../../audioutils/README.md) for details on the different configuration options.
@@ -14,19 +16,21 @@ Before using the workflow, you need to configure the a1800.dll. See the [audiout
 
 ### Step 1: Prepare Your Audio File
 
-1. Add your audio file (MP3 or WAV) to the repository, typically in the `audio/` directory
+1. Add your audio file (MP3 or WAV) to the repository, on a branch of your own
 2. Commit and push the file to GitHub
+
+The test workflow's `no-generated-files` check fails on any committed audio beyond the files the repo ships with, so keep this branch to yourself and don't merge it.
 
 Example:
 ```bash
-# Add your audio file
+git switch -c convert-myaudio
 cp myaudio.wav audio/new_audio/
-
-# Commit and push
 git add audio/new_audio/myaudio.wav
-git commit -m "Add new audio file for conversion"
-git push
+git commit -m "Add audio to convert"
+git push -u origin convert-myaudio
 ```
+
+Then pick that branch in "Use workflow from" when you run it.
 
 ### Step 2: Run the Workflow
 
@@ -53,7 +57,7 @@ git push
 ### Convert a WAV file with default settings
 
 **Input:**
-- audio_file_path: `audio/new_audio/imperial_march-16000_wav.a18` (if using existing)
+- audio_file_path: `audio/new_audio/myaudio.wav`
 - output_path: (leave empty)
 - sample_rate: (leave empty or use 16000)
 
@@ -99,7 +103,7 @@ python audioutils/convert_to_a18.py audio/myfile.wav -s 16000
 
 ### Workflow fails with "a1800.dll not found"
 
-Make sure you've configured the a1800.dll as described in the [audioutils README](../audioutils/README.md). You need to either:
+Make sure you've configured the a1800.dll as described in the [audioutils README](../../audioutils/README.md). You need to either:
 1. Store it as a GitHub secret (recommended)
 2. Add it to the repository (not recommended due to licensing)
 3. Host it on a secure server and update the workflow
@@ -124,13 +128,13 @@ Once you have your a18 file, you can use it in your Furby DLC files:
 from furby import dlc
 
 # Load a DLC
-D = dlc("./dlc/dlc1/tu012700.dlc")
+D = dlc("./dlc/dlc2/tu003410.dlc")
 
 # Replace audio for action code 75-0-0-0
 D.replace_audio((75,0,0,0), ["path/to/your/file.a18"])
 
 # Build the modified DLC
-D.build("/tmp/modified_dlc.dlc")
+D.build("./build/modified.dlc")
 ```
 
-See the main [README](../README.md) for more information on working with DLC files.
+See the main [README](../../README.md) for more information on working with DLC files.

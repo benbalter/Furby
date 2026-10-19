@@ -1,130 +1,29 @@
-# Furby Audio Files
+# Furby audio files
 
-This directory contains audio files in the GeneralPlus .a18 format for use with Furby Connect DLC files.
+Audio that ships with the repo for building DLCs. Furby Connect plays GeneralPlus A1800 `.a18` audio at 16 kHz, mono.
 
-## Existing Audio Files
+- **`imperial_march-16000_wav.a18`**: the Imperial March. `spooky_eyes.py` plays it on action 75-0-4-4 by default (`--song`).
+- **`darkside_wav.a18`**: a clip of about 15 seconds. `spooky_eyes.py` plays it on 75-0-3-4 by default (`--sting`).
+- **`toccata_in_d_minor_16khz.wav`**: the first 20 seconds of Bach's Toccata and Fugue in D Minor, public domain. The Halloween show plays 5 seconds of it; see [TOCCATA_CONVERSION.md](TOCCATA_CONVERSION.md) and [TOCCATA_EXAMPLE.md](../../TOCCATA_EXAMPLE.md).
 
-- **imperial_march-16000_wav.a18** - The Imperial March from Star Wars
-- **darkside_wav.a18** - Dark Side themed audio
+Don't add files here: put your own audio and anything you convert in `build/`, which git ignores. CI fails if audio other than these three files is committed.
 
-## Adding Toccata in D Minor
+## Converting audio to .a18
 
-**NEW: A pre-prepared WAV file is now included!** See `TOCCATA_CONVERSION.md` for details on converting the included `toccata_in_d_minor_16khz.wav` file to .a18 format.
-
-To add Bach's Toccata and Fugue in D Minor to your Furby, you'll need to prepare the audio file in .a18 format.
-
-### Option 1: Use the Included WAV File (Easiest!)
-
-This directory now includes `toccata_in_d_minor_16khz.wav` - a properly formatted WAV file extracted from the full Toccata recording. See `TOCCATA_CONVERSION.md` for conversion instructions.
-
-### Option 2: Find an Existing .a18 File
-
-If you can find a pre-converted .a18 file of Toccata in D Minor (16kHz sample rate), simply place it in this directory with the filename:
-```
-toccata_in_d_minor.a18
-```
-
-### Option 3: Convert from WAV
-
-To convert a WAV file to .a18 format, you'll need:
-
-1. **Source Audio**: Obtain a recording of Toccata and Fugue in D Minor by J.S. Bach in WAV format
-   - Recommended: Keep it under 30 seconds for Furby compatibility
-   - Sample rate: 16000 Hz (16 kHz)
-   - Mono channel (not stereo)
-
-2. **Choose your conversion method based on your OS:**
-
-#### Windows
-
-1. Download the [GeneralPlus Gadget utility](http://www.generalplus.com/)
-2. Extract the `a1800.dll` file from the utility
-3. Use the conversion script:
-   ```bash
-   python ../audioutils/convert.py
-   ```
-   Note: You'll need to modify the script to point to your specific WAV file
-
-#### Mac/Linux
-
-We provide a conversion script that uses Wine to run the Windows DLL:
-
-1. **Install dependencies:**
-   ```bash
-   # Mac (using Homebrew)
-   brew install wine-stable ffmpeg
-   
-   # Ubuntu/Debian
-   sudo apt-get install wine ffmpeg
-   
-   # Fedora/RHEL
-   sudo yum install wine ffmpeg
-   ```
-
-2. **Get the a1800.dll:**
-   - Download [GeneralPlus Gadget utility](http://www.generalplus.com/) (Windows version)
-   - Extract `a1800.dll` from the archive
-   - Place it in the `audioutils` directory
-
-3. **Convert your audio:**
-   ```bash
-   cd audioutils
-   python convert_mac_linux.py /path/to/toccata.mp3 ../audio/new_audio/toccata_in_d_minor.a18 a1800.dll
-   ```
-   
-   The script will:
-   - Convert your audio to the correct format (16kHz mono WAV)
-   - Use Wine to run the Windows DLL for .a18 encoding
-   - Output the .a18 file ready for use
-
-**Alternative for Mac/Linux (without Wine):**
-
-If you can't get Wine working, you can:
-1. Use an existing .a18 file from the `audio/new_audio/` directory as a template
-2. Or run the conversion on a Windows machine/VM
-3. Or ask someone with Windows to convert the file for you
-
-### Option 3: Use Multiple Segments
-
-For a more dramatic effect, you can split Toccata into multiple segments:
-
-- `toccata_intro.a18` - The iconic opening notes
-- `toccata_main.a18` - The main theme
-- `toccata_climax.a18` - The dramatic conclusion
-
-Then use the `create_multi_track_toccata()` function in `demo_toccata.py`.
-
-## Audio Format Specifications
-
-GeneralPlus .a18 files for Furby Connect should have:
-- **Sample Rate**: 16000 Hz (16 kHz)
-- **Channels**: Mono
-- **Format**: GeneralPlus SP codec
-- **File Structure**: 
-  - Optional header: `\x00\xff\x00\xffGENERALPLUS SP\x00\x00` (at offset 0x00)
-  - Length field: 4-byte little-endian integer (at offset 0x30 if header present, else 0x00)
-  - Audio data: GeneralPlus compressed audio
-
-## Tips for Audio Preparation
-
-1. **Keep it short**: Furby has limited memory. Aim for 15-30 second clips.
-2. **Test incrementally**: Start with a single track before creating complex multi-track DLCs.
-3. **Use minify_audio()**: The demo scripts include this function to shrink audio for faster testing.
-4. **Backup original DLCs**: Always keep a backup before uploading custom DLCs to your Furby.
-
-## Example Usage
-
-Once you have `toccata_in_d_minor.a18` in this directory, run:
+On any OS, with ffmpeg installed, from the repo's folder:
 
 ```bash
-python demo_toccata.py
+uv run audioutils/encode_a18.py my_song.mp3 build/my_song.a18 --start 0:30 --duration 10
 ```
 
-This will create `toccata_furby.dlc` which you can upload to your Furby Connect.
+It reads anything ffmpeg does, resamples to 16 kHz mono, and encodes with the open-source [a1800_codec](https://github.com/John-K/a1800_codec), so no Windows DLL is needed. The Halloween show doesn't even need this step: list a WAV or MP3 in [`halloween/show.toml`](../../halloween/show.toml) and `halloween.py` converts it. The older tools that use GeneralPlus's A1800.DLL (on Windows, or through Wine on a Mac or Linux) are described in [audioutils/README.md](../../audioutils/README.md).
 
-## Need Help?
+## Format
 
-For more information on Furby Connect DLC structure and audio handling, see:
-- Main project README.md
-- [Context IS Blog Post](https://www.contextis.com/blog/dont-feed-them-after-midnight-reverse-engineering-the-furby-connect)
-- The audioutils directory for conversion scripts
+A `.a18` file as `encode_a18.py` writes it, and as `furby.py` reads it, is a 4-byte little-endian length (counting the 2-byte bitrate that follows), the 2-byte bitrate, then A1800 frames. Files from GeneralPlus's own tools may start with a 0x30-byte `GENERALPLUS SP` header before the length.
+
+## Tips
+
+1. **Keep it short.** Audio costs about 2 KB a second, and a DLC has to stay under about 350 KB to upload. A few seconds per clip is plenty, and the Furby's speaker doesn't do music any favors.
+2. **Test small first.** `D.dlc_sections["AMF"].minify_audio()` cuts every stock track to 128 bytes, for faster test uploads.
+3. **Play it over Bluetooth.** A DLC's audio plays only when an action is triggered over Bluetooth (`uv run porch.py --action 75,0,4,4`), not from the Furby's own reactions.

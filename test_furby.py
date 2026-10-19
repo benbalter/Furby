@@ -219,6 +219,7 @@ class TestCustomEyes(unittest.TestCase):
 
     def test_one_animation_keeps_demo_layout(self):
         """One theme lays out animation 1 exactly as demo.install_eyes() does, which has run on a Furby"""
+        import eyecheck
         import spooky_eyes
         stock = dlc(self.test_dlc_path)
         D = dlc(spooky_eyes.build("demon", out_dir=self.temp_dir))
@@ -234,15 +235,14 @@ class TestCustomEyes(unittest.TestCase):
             self.assertEqual({w for f in frames for w in f[1:8:2]}, {ref})
             if p < 12:
                 self.assertEqual({w for f in frames for w in f[0:8:2]}, {1})  # blanked
-        # the frames follow the timeline, and each eye has its own cels (probes whose eyes shared them
-        # came out garbled): the left eye's first, consecutive within each frame, as install_eyes() does
+        # the frames follow the timeline, and both eyes share cels, consecutive within each frame, in a
+        # CEL section padded to 16 (shared cels in fewer came out garbled on a Furby)
         right = [S.frames[f][0:8:2] for f in S.frame_playlists[12]["frame_indices"]]
         left = [S.frames[f][0:8:2] for f in S.frame_playlists[13]["frame_indices"]]
-        self.assertFalse({c for f in right for c in f} & {c for f in left for c in f})
+        self.assertEqual(right, left)
         self.assertEqual(len({tuple(f) for f in right}), 3)
-        self.assertEqual([[c - 12 for c in f] for f in right], left)
         self.assertEqual(sorted({c for f in left for c in f}), list(range(2, 14)))
-        import eyecheck
+        self.assertEqual(len(D.dlc_sections["CEL"].cels), eyecheck.PROVEN_MIN_CELS)
         self.assertEqual(eyecheck.envelope(D)[0], [])
         self.assertEqual(D.dlc_sections["PAL"].palettes[4], D.dlc_sections["PAL"].palettes[5])
         for code in spooky_eyes.DEMO_ACTIONS:
@@ -630,7 +630,7 @@ class TestHalloween(unittest.TestCase):
         report = halloween.budget_report("pink", budget)
         self.assertIn("pink.dlc: %d of 350 KB" % round(budget["total"] / 1000), report)
         self.assertLessEqual(len(report.splitlines()), 4)
-        # Two themes now cost about 150 KB (each eye has its own cels), so judge the warning against a roomy limit
+        # Judge the warning against a roomy limit, so it doesn't hang on what two themes cost
         self.assertNotIn("Warning", halloween.budget_report("pink", budget, limit=budget["total"] * 2))
         self.assertIn("Warning", halloween.budget_report("pink", budget, limit=budget["total"] + 1000))
         # Over the limit, it suggests clips not in any scene first, then the largest
@@ -1879,7 +1879,7 @@ class TestEyeCheck(unittest.TestCase):
         # eyese failed; eyesl (separate cels, 10) and eyesk (eyese padded to 18) passed
         for share, pad, fails in ((True, 0, True), (False, 0, False), (True, 8, False)):
             D = dlc(self.stock_path)
-            spooky_eyes.install_animations(D, [(keys, [i * 2 // 38 for i in range(38)])], share=share)
+            spooky_eyes.install_animations(D, [(keys, [i * 2 // 38 for i in range(38)])], share=share, min_cels=0)
             CEL = D.dlc_sections["CEL"]
             CEL.cels.extend([row[:] for row in CEL.cels[0]] for _ in range(pad))
             D.trigger_custom_graphics((75, 0, 4, 4))

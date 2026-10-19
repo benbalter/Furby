@@ -45,6 +45,7 @@ import sys
 
 from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
+from eyecheck import PROVEN_MIN_CELS
 from furby import dlc
 
 SIZE = 128
@@ -52,7 +53,7 @@ SCALE = 4  # draw big, then shrink, for smooth edges
 COLOURS = 63  # palette index 0 is kept transparent, as in the stock palettes
 MAX_UPLOAD = 350_000  # bigger DLCs time out mid-upload
 FRAMES = 38  # frames per animation: the stock animation's length, the only one tested on a Furby
-THEME_BYTES = 78_900  # what each eye theme after the first adds to a DLC at FRAMES frames (measured)
+THEME_BYTES = 35_900  # what each eye theme after the first adds to a DLC at FRAMES frames (measured)
 MAX_FRAMES = 95  # the longest animation in the firmware's own eye files
 FRAME_MS = 66  # preview speed only: a guess (furby-connect-eyes-extract's), not measured on a Furby
 FIRST_ANIMATION = 0x8401  # eye word for the DLC's animation 1; 0x8402 is animation 2, and so on
@@ -329,17 +330,18 @@ def _add_cels(cels, frames, dedup="frame"):
     return out
 
 
-def install_animations(D, animations, zero=(248, 0, 248, 0), dedup="frame", share=False):
+def install_animations(D, animations, zero=(248, 0, 248, 0), dedup="frame", share=True, min_cels=PROVEN_MIN_CELS):
     """Put animations on the DLC's eyes; returns the eye word for each (0x8401, 0x8402, ...).
 
     animations: a list of (keyframes, timeline) pairs, keyframes being 128x128
     RGB images and timeline the keyframe each frame shows (so its length is
-    the animation's). Both eyes show the same image, but each eye has its own
-    copy of the cels (left eye's first, as demo.install_eyes() does). Probes
-    whose eyes shared cels in a CEL section of under 16 cels (eyesb, eyese,
-    eyesh) showed garbled digits; eyesk, eyese padded to 18 cels, didn't, so
-    sharing works in a big enough section but hasn't been tried on this
-    path. share=True shares them, to rebuild those probes.
+    the animation's). Both eyes show the same image from the same cels, and
+    the CEL section is padded with copies of cel 0 to min_cels: probes whose
+    eyes shared cels in under 16 cels (eyesb, eyese, eyesh) showed garbled
+    digits, while eyesk (eyese padded to 18) and a show DLC padded to 16
+    showed clean ones. share=False gives each eye its own copy (left eye's
+    first, as demo.install_eyes() does), and min_cels=0 skips the padding,
+    to rebuild the older probes.
 
     The first animation takes the place of the stock one (SPR playlists 8-15),
     laid out exactly as demo.install_eyes() does, which has run on a Furby:
@@ -362,6 +364,7 @@ def install_animations(D, animations, zero=(248, 0, 248, 0), dedup="frame", shar
     quarters = [_quarters(p) for p in pixels]
     left_cels = _add_cels(CEL.cels, quarters, dedup)
     right_cels = left_cels if share else _add_cels(CEL.cels, quarters, dedup)
+    CEL.cels.extend([row[:] for row in CEL.cels[0]] for _ in range(min_cels - len(CEL.cels)))
 
     # The palette words demo.install_eyes() uses, from the stock frames.
     refs = sorted({w for f in S.frames for w in f[1:8:2]})
@@ -710,7 +713,7 @@ def build_probe(dlc_in="./dlc/dlc2/tu003410.dlc", out_dir="./build/eyes_probe2",
         elif how == "layout":
             words = install_layout(D, animations[0][0], work_dir, **opts)
         else:
-            words = install_animations(D, animations, BLACK, **opts)
+            words = install_animations(D, animations, BLACK, **{"share": False, "min_cels": 0, **opts})
             for code, n in actions.items():
                 D.trigger_custom_graphics(code, words[n])
         path = os.path.join(out_dir, name)

@@ -2795,6 +2795,39 @@ class TestPorchAction(unittest.TestCase):
                 porch.parse_action(text)
 
 
+class TestPorchStop(unittest.TestCase):
+    """Ctrl-C turns the antennas off and disconnects, even from a Furby that won't answer"""
+
+    def test_let_go(self):
+        import asyncio
+        import types
+
+        import porch
+
+        class F:
+            def __init__(self, fails=False):
+                self.is_connected, self.fails, self.antenna = True, fails, None
+
+            def connected(self):
+                return self.is_connected
+
+            async def set_antenna(self, rgb):
+                if self.fails:
+                    raise OSError("gone")
+                self.antenna = rgb
+
+            async def disconnect(self):
+                self.is_connected = False
+
+        good, gone, asleep = F(), F(fails=True), F()
+        asleep.is_connected = False
+        show = types.SimpleNamespace(furbies={"pink": gone, "blue": good, "green": asleep})
+        asyncio.run(porch.let_go(show))
+        self.assertEqual(good.antenna, (0, 0, 0))
+        self.assertFalse(good.is_connected)
+        self.assertIsNone(asleep.antenna)
+
+
 class TestRealShow(unittest.TestCase):
     """halloween/show.toml, built with placeholder clips, plays every line on virtual Furbies"""
 

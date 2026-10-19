@@ -298,6 +298,17 @@ def greet_on_enter(show):
     print("Press Enter to play a greeting when someone arrives.")
 
 
+async def let_go(show):
+    """On the way out, Ctrl-C included: antennas off, then disconnect, so FurBLE or the board can connect."""
+    for furby in list(show.furbies.values()):
+        try:
+            if furby.connected():
+                await asyncio.wait_for(furby.set_antenna((0, 0, 0)), 2)
+                await asyncio.wait_for(furby.disconnect(), 5)
+        except Exception:  # it's already gone, or too busy to answer; quitting lets go of it anyway
+            pass
+
+
 def check_choice(plan, args):
     """Turn a --scene or --clip that isn't in the built show into a list of what is, not a traceback."""
     if args.scene is not None and not 0 <= args.scene < len(plan["scenes"]):
@@ -358,6 +369,13 @@ async def main(args):
             raise SystemExit(1)
         return
     show = furbyshow.Show(plan, find, trace=traceback.print_exception)
+    try:
+        await run_show(show, plan, args)
+    finally:  # also on Ctrl-C, which cancels this task
+        await let_go(show)
+
+
+async def run_show(show, plan, args):
     if args.list:
         for furby in await find([]):
             print("%s  %s" % (furby.name, furby.address))
@@ -385,4 +403,8 @@ if __name__ == "__main__":
     )
     parser.add_argument("--rehearse", action="store_true", help="play scenes on this computer, no Furbies needed")
     parser.add_argument("--check", action="store_true", help="play every clip once per Furby and report what played")
-    asyncio.run(main(parser.parse_args()))
+    try:
+        asyncio.run(main(parser.parse_args()))
+    except KeyboardInterrupt:  # Ctrl-C: main() has already let go of the Furbies
+        print("\nStopped.")
+        raise SystemExit(130) from None

@@ -335,11 +335,11 @@ def install_animations(D, animations, zero=(248, 0, 248, 0), dedup="frame", shar
     animations: a list of (keyframes, timeline) pairs, keyframes being 128x128
     RGB images and timeline the keyframe each frame shows (so its length is
     the animation's). Both eyes show the same image, but each eye has its own
-    copy of the cels (left eye's first, as demo.install_eyes() does): every
-    probe whose eyes shared cels (eyesb, eyese, eyesh) showed garbled digits
-    on a Furby. Those also all had under 16 cels, so which of the two broke
-    them is open (eyesk and eyesl split it). share=True shares them anyway,
-    to rebuild those probes.
+    copy of the cels (left eye's first, as demo.install_eyes() does). Probes
+    whose eyes shared cels in a CEL section of under 16 cels (eyesb, eyese,
+    eyesh) showed garbled digits; eyesk, eyese padded to 18 cels, didn't, so
+    sharing works in a big enough section but hasn't been tried on this
+    path. share=True shares them, to rebuild those probes.
 
     The first animation takes the place of the stock one (SPR playlists 8-15),
     laid out exactly as demo.install_eyes() does, which has run on a Furby:
@@ -618,6 +618,9 @@ PROBE = {
     ),
     "eyesk.dlc": ([("12", FRAMES, RED)], dict.fromkeys(DEMO_ACTIONS, 0), ("layout", {"share": True, "pad": 8})),
     "eyesl.dlc": ([("1", FRAMES, RED)], dict.fromkeys(DEMO_ACTIONS, 0), ("layout", {})),
+    # Round 5: eyesk and eyesl both showed clean digits, so shared cels garble only in under 16 cels.
+    # eyesj (three animations, 32 playlists, 215 KB) showed eyesl's "1" in eyesj's palette: like
+    # probe.dlc, its cels never loaded, and it's smaller than DLCs that have, so file size isn't why.
 }
 
 

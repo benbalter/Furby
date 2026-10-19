@@ -18,9 +18,9 @@ cooldown = 20       # seconds after a greeting when the motion sensor is ignored
 # Preview them all with: uv run spooky_eyes.py --preview (writes build/eyes/).
 eye_frames = 38            # frames per eye animation: 38 is the stock length; up to 95
 one_eye_animation = true   # every clip shows its Furby's first eyes: one animation, the
-                           # only layout that has shown on a Furby. Set false once the
-                           # eyesj probe (uv run spooky_eyes.py --probe) shows 0x8402 playing;
-                           # a second theme fits each Furby's DLC, a third doesn't.
+                           # only layout that has shown on a Furby. The eyesj probe (three
+                           # animations) left the previous DLC's eyes on screen, so keep this
+                           # true; a second theme fits each Furby's DLC, a third doesn't.
 # Antenna light: while a Furby speaks, its antenna plays its clip's eyes'
 # light, which swells with the sound: demon = red pulse, bloodshot = deep red,
 # storm = blue glow with white lightning, pumpkin = orange candle flicker,

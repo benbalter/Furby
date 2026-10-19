@@ -1870,19 +1870,21 @@ class TestEyeCheck(unittest.TestCase):
         self.assertNotEqual(eyecheck.main([path]), 0)
 
     def test_shared_eye_cels_fail(self):
-        """Eyes sharing cels over blanked layers, or under 16 cels, is what eyesb, eyese and eyesh showed garbled"""
+        """Eyes sharing cels over blanked layers in under 16 cels is what eyesb, eyese and eyesh showed garbled"""
         from PIL import Image
 
         import eyecheck
         import spooky_eyes
         keys = [spooky_eyes._digit(d, spooky_eyes.RED).resize((128, 128), Image.LANCZOS) for d in (1, 2)]
-        for share in (True, False):
+        # eyese failed; eyesl (separate cels, 10) and eyesk (eyese padded to 18) passed
+        for share, pad, fails in ((True, 0, True), (False, 0, False), (True, 8, False)):
             D = dlc(self.stock_path)
             spooky_eyes.install_animations(D, [(keys, [i * 2 // 38 for i in range(38)])], share=share)
+            CEL = D.dlc_sections["CEL"]
+            CEL.cels.extend([row[:] for row in CEL.cels[0]] for _ in range(pad))
             D.trigger_custom_graphics((75, 0, 4, 4))
             errors = eyecheck.envelope(D)[0]
-            self.assertEqual(any("share cels" in e for e in errors), share, errors)
-            self.assertEqual(any("cels: every DLC with fewer" in e for e in errors), share, errors)
+            self.assertEqual(any("share cels" in e for e in errors), fails, (share, pad, errors))
 
     def test_long_animation_fails(self):
         """A 76-frame animation's SPR is bigger than any that has shown on a Furby"""

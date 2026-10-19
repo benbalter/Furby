@@ -67,20 +67,20 @@ RULES = ("layer", "slot")
 #   its frames and palette over an earlier DLC's cels (the demon eyes, or
 #   Hasbro's stock eye and chilli) gives that; its own cels give clean digits.
 #   So, inferred: its CEL section never replaced the old one. What triggers
-#   that is open: the playlist count, the SPR size or the file size (the
-#   biggest custom DLC known to show its eyes is 239 KB). eyesa.dlc (32
-#   playlists, 180 KB) separates playlists from file size; probe_long.dlc (16
-#   playlists, a 10,476-byte SPR) separates playlists from SPR size.
+#   that is open: the playlist count or the SPR size. eyesj.dlc (32
+#   playlists, a 15,804-byte SPR, 215 KB, smaller than spooky_demon.dlc)
+#   did the same, drawing eyesl's "1" in its own palette, so it isn't the
+#   file size. probe_long.dlc (16 playlists, a 10,476-byte SPR) separates
+#   playlists from SPR size.
 PROVEN_PLAYLISTS = 16
 PROVEN_SPR_BYTES = 5460
 PROVEN_DLC_BYTES = 239_262  # spooky_demon.dlc; Hasbro's own are bigger, but come through the app
-# eyesb.dlc (9 cels), eyese.dlc and eyesh.dlc (10 cels each) showed garbled
-# digits; eyesc.dlc (18), eyesf.dlc (16) and Hasbro's (79) didn't. The garbled
-# three are also the only ones whose two eyes shared cels in a blanked-layer
-# layout (Hasbro's shares cels between its eyes too, over real eye art), so
-# which of the two broke them is inferred, not settled: eyesk.dlc (shared,
-# padded to 18 cels) and eyesl.dlc (separate, 10 cels) split it. Both are
-# errors until then.
+# eyesb.dlc (9 cels), eyese.dlc and eyesh.dlc (10 cels each), whose two eyes
+# shared cels over blanked layers, showed garbled digits. Neither half alone
+# does it: eyesl.dlc (separate cels, 10 of them) showed a clean digit, and so
+# did eyesk.dlc, which is eyese.dlc with 8 unused cels appended (18). So
+# sharing cels is fine in a CEL section of at least this many cels; why the
+# count matters is unknown.
 PROVEN_MIN_CELS = 16
 
 
@@ -191,18 +191,15 @@ def envelope(D):
             "SPR is %d bytes; every DLC whose eyes have worked has a %d-byte SPR (38-frame animations). "
             "Use eye_frames = 38." % (size, PROVEN_SPR_BYTES)
         )
-    if len(cels) < PROVEN_MIN_CELS:
-        errors.append(
-            "%d cels: every DLC with fewer than %d (eyesb, eyese, eyesh) showed garbled eyes."
-            % (len(cels), PROVEN_MIN_CELS)
-        )
-    for word in dlc_words(D):
+    for word in dlc_words(D) if len(cels) < PROVEN_MIN_CELS else []:
         playlists = [p for p in animation_playlists(word) if p < n]
         shared = sorted(_eye_cels(S, playlists, 0) & _eye_cels(S, playlists, 1) - {0, 1})
         if shared and _eye_cels(S, playlists[:2], 0) | _eye_cels(S, playlists[:2], 1) <= {0, 1}:
             errors.append(
-                "0x%04x's eyes share cels (%s) over blanked lower layers; eyese and eyesh, the probes that "
-                "did that, showed garbled eyes. Give each eye its own cels." % (word, ", ".join(map(str, shared[:5])))
+                "0x%04x's eyes share cels (%s) over blanked lower layers in a CEL section of %d cels; eyesb, "
+                "eyese and eyesh did that and showed garbled eyes, while eyesk, padded to 18 cels, didn't. Give "
+                "each eye its own cels, or pad to %d."
+                % (word, ", ".join(map(str, shared[:5])), len(cels), PROVEN_MIN_CELS)
             )
     for word in dlc_words(D):
         missing = [p for p in animation_playlists(word) if p >= n]

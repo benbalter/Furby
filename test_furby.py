@@ -2779,6 +2779,20 @@ class TestCheck(unittest.TestCase):
         self.assertFalse(pink.is_connected)
 
 
+class TestPorchAction(unittest.TestCase):
+    """porch.py --action triggers one action on any DLC, so probes don't need FurBLE"""
+
+    def test_parse_action(self):
+        import argparse
+
+        import porch
+        for text in ("75,0,4,4", "75 0 4 4", "75-0-4-4"):
+            self.assertEqual(porch.parse_action(text), (75, 0, 4, 4))
+        for text in ("75,0,4", "75,0,4,256", "a,b,c,d", ""):
+            with self.assertRaises(argparse.ArgumentTypeError):
+                porch.parse_action(text)
+
+
 class TestRealShow(unittest.TestCase):
     """halloween/show.toml, built with placeholder clips, plays every line on virtual Furbies"""
 

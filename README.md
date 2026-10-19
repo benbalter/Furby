@@ -439,7 +439,7 @@ Each theme is three keyframes played across the animation's 38 frames in its own
 
 The build copies Context's `hacked.dlc`, which [FurBLE](https://github.com/pdjstone/furby-web-bluetooth) ships and which is known to flash: every stock audio track is cut to 128 bytes, and apart from audio and eyes the result matches `hacked.dlc` section for section. The script refuses to write anything over about 350 KB, because bigger uploads time out.
 
-A DLC only changes what plays when a phone or computer triggers an action over Bluetooth. The Furby's own reactions to noises, petting and so on come from its built-in memory, so they sound the same with any DLC active. To try the eyes, flash the DLC (below), then trigger `75 0 4 4` from FurBLE's custom action box.
+A DLC only changes what plays when a phone or computer triggers an action over Bluetooth. The Furby's own reactions to noises, petting and so on come from its built-in memory, so they sound the same with any DLC active. To try the eyes, flash the DLC (below), then run `uv run porch.py --action 75,0,4,4` (or trigger `75 0 4 4` from FurBLE's custom action box).
 
 ### Checking before flashing
 

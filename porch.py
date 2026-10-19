@@ -311,7 +311,33 @@ def check_choice(plan, args):
                 raise SystemExit("There's no clip %r in the built show. It has: %s" % (part, ", ".join(clips)))
 
 
+def parse_action(text):
+    """Turn "75,0,4,4" (or "75 0 4 4", as FurBLE writes it) into an action code."""
+    parts = text.replace(",", " ").replace("-", " ").split()
+    try:
+        action = tuple(int(p) for p in parts)
+    except ValueError:
+        action = ()
+    if len(action) != 4 or not all(0 <= n < 256 for n in action):
+        raise argparse.ArgumentTypeError("an action is four numbers from 0 to 255, e.g. 75,0,4,4")
+    return action
+
+
+async def trigger_action(action):
+    """Play one action on every Furby in range, whatever DLC it has: for probes and test DLCs."""
+    furbies = await find([])
+    if not furbies:
+        raise SystemExit("No Furby found. Wake it by tilting it or petting its head, and close FurBLE.")
+    for furby in furbies:
+        played = await furby.play(action)
+        print("%s (%s): %s" % (furby.name, furby.address, "played" if played else "too busy to play its audio"))
+        await furby.disconnect()
+
+
 async def main(args):
+    if args.action:
+        await trigger_action(args.action)
+        return
     with open(args.show) as f:
         plan = json.load(f)
     check_choice(plan, args)
@@ -354,6 +380,9 @@ if __name__ == "__main__":
     parser.add_argument("--scene", type=int, help="play this scene once (0 = first) and exit")
     parser.add_argument("--clip", help='play one clip once, e.g. "pink.cackle", and exit')
     parser.add_argument("--list", action="store_true", help="list Furbies in range and exit")
+    parser.add_argument(
+        "--action", type=parse_action, help="trigger one action, e.g. 75,0,4,4, on any DLC (no show.json needed)"
+    )
     parser.add_argument("--rehearse", action="store_true", help="play scenes on this computer, no Furbies needed")
     parser.add_argument("--check", action="store_true", help="play every clip once per Furby and report what played")
     asyncio.run(main(parser.parse_args()))

@@ -57,6 +57,8 @@ watching = { path = "build/cloned/pink_watching.wav", text = "Kah is watching yo
 yourcandy = { path = "build/cloned/pink_yourcandy.wav", before = 0.4, text = "Kah love... your CANDY." }
 trick = { path = "build/cloned/pink_trick.wav", before = 0.4, text = "Trick." }
 scariest = { path = "build/cloned/pink_laugh.wav", text = "Mwahaha! Kah is the scariest Furby!" }
+candy = { path = "build/cloned/pink_candy.wav", text = "Gimme all the candy!" }
+evillaugh = "build/sfx/evil-laugh-0.wav"
 # Music: a clip can be a table that cuts a snippet. Audio costs about 2 KB a
 # second, and each DLC must stay under about 350 KB. The opening bars are
 # enough to recognize, and a Furby's speaker doesn't do music any favors.
@@ -84,6 +86,8 @@ whocall = { path = "build/cloned/blue_whocall.wav", text = "Who you gonna call?"
 song = { path = "build/cloned/blue_song.wav", text = "Ooh! Kah love this song!" }
 halloween = { path = "build/cloned/blue_halloween.wav", text = "Kah love Halloween!" }
 trickortreat = { path = "build/cloned/blue_trickortreat.wav", text = "Trick or treat!" }
+wantcandy = { path = "build/cloned/blue_trick.wav", text = "Trick or treat! Kah want candy!" }
+cutest = { path = "build/cloned/blue_cutest.wav", text = "Kah is the cutest Furby." }
 # Punchlines wait a little longer than the usual gap: 0.6 + 0.4 = 1 second.
 gotcha = { path = "build/cloned/blue_gotcha.wav", before = 0.4, text = "Hee hee! Gotcha!" }
 hi = { path = "build/cloned/blue_hi.wav", before = 0.4, text = "Kah watching too! Hi!" }
@@ -111,6 +115,10 @@ steps = ["blue.thanks", "pink.scariest", "blue.hascandy"]
 greeting = true
 steps = ["blue.trickortreat", "pink.trick"]
 
+[[scenes]]
+greeting = true
+steps = ["blue.wantcandy", "pink.candy"]
+
 # Call and response only works when someone's there to shout back
 [[scenes]]
 greeting = true
@@ -128,6 +136,9 @@ steps = ["blue.door", "pink.scream", "blue.gotcha"]
 [[scenes]]
 steps = ["pink.watching", "blue.hi"]
 
+[[scenes]]
+steps = ["pink.scariest", "blue.cutest"]
+
 # Pure atmosphere, no punchline
 [[scenes]]
 steps = ["pink.moan", "pink.cackle2"]
@@ -140,4 +151,4 @@ steps = ["pink.toccata", "blue.song"]
 steps = ["blue.halloween", "pink.yourcandy"]
 
 [[scenes]]
-steps = ["blue.door", "pink.cackle", "blue.gotcha"]
+steps = ["blue.door", "pink.evillaugh", "blue.what"]

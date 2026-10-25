@@ -10,6 +10,7 @@ of the Furby Connect DLC file parser and builder.
 import os
 import shutil
 import tempfile
+import types
 import unittest
 
 from furby import dlc
@@ -1159,6 +1160,29 @@ class TestHalloween(unittest.TestCase):
         self.assertEqual(furbyshow.pick_scene(scenes, {"pink"}), ["pink.c"])
         self.assertIsNone(furbyshow.pick_scene(scenes, set()))
         self.assertEqual(furbyshow.pick_scene(scenes, {"pink"}, last=["pink.c"]), ["pink.c"])
+        # Played scenes wait their turn, but a missing Furby's scenes don't block the rest
+        scenes = [["pink.a"], ["pink.b"], ["blue.c"]]
+        self.assertEqual(furbyshow.pick_scene(scenes, {"pink"}, played=[["pink.a"]]), ["pink.b"])
+        self.assertEqual(furbyshow.pick_scene(scenes, {"pink"}, ["pink.b"], [["pink.a"], ["pink.b"]]), ["pink.a"])
+
+    def test_show_shuffles_scenes(self):
+        """Every scene plays once before any repeats, and a new pass never opens with the last one"""
+        import asyncio
+
+        import furbyshow
+
+        plan = {"furbies": {"pink": {"clips": {}}}, "gap": 0, "every": [0, 0], "scenes": [["pink.%d" % i] for i in range(4)]}
+        show = furbyshow.Show(plan, find=None, log=lambda line: None)
+        show.furbies = {"pink": types.SimpleNamespace(connected=lambda: True)}
+        show.reconnect = lambda: asyncio.sleep(0)
+        show.play_scene = lambda scene: asyncio.sleep(0)
+        order = []
+        for _ in range(40):
+            asyncio.run(show.run_once())
+            order.append(show.last[0])
+        for start in range(0, 40, 4):
+            self.assertEqual(sorted(order[start : start + 4]), ["pink.%d" % i for i in range(4)])
+        self.assertTrue(all(order[i] != order[i + 1] for i in range(len(order) - 1)))
 
     def test_show_runs_scenes(self):
         """The show connects, identifies Furbies by DLC name, and plays a scene's steps in order"""

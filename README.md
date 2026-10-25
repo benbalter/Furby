@@ -88,7 +88,7 @@ That writes the `build/sfx/` files `show.toml` names (`witch-cackle-0.wav` and s
 uv run halloween.py --skip-missing
 ```
 
-This writes `build/halloween/pink.dlc`, `blue.dlc` and `show.json` (the show's script for the computer). The last line says how many scenes it made: 8 with just the voice lines, 12 with the sound effects too, and 13 with Ghostbusters. 0 or 1 scenes means the voice lines are missing or misnamed. `--skip-missing` leaves out any clip that doesn't exist yet, along with its scenes; drop it once you have them all, so a typo in a file name stops the build instead.
+This writes `build/halloween/pink.dlc`, `blue.dlc` and `show.json` (the show's script for the computer). The last line says how many scenes it made: 10 with just the voice lines, 14 with the sound effects too, and 15 with Ghostbusters. 0 or 1 scenes means the voice lines are missing or misnamed. `--skip-missing` leaves out any clip that doesn't exist yet, along with its scenes; drop it once you have them all, so a typo in a file name stops the build instead.
 
 ### 4. Rehearse on your computer
 

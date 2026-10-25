@@ -190,10 +190,14 @@ def plan_order(text, names):
     return sorted(names, key=where)
 
 
-def pick_scene(scenes, present, last=None):
-    """A random scene whose Furbies are all connected, avoiding a repeat if possible."""
+def pick_scene(scenes, present, last=None, played=()):
+    """A random scene whose Furbies are all connected, avoiding a repeat if possible.
+
+    Scenes in played wait until every ready scene has had its turn, like a
+    shuffled deck, so a long night doesn't keep coming back to the same few.
+    """
     ready = [s for s in scenes if all(p.split(".")[0] in present for step in s for p in step_parts(step))]
-    fresh = [s for s in ready if s != last] or ready
+    fresh = [s for s in ready if s != last and s not in played] or [s for s in ready if s != last] or ready
     return random.choice(fresh) if fresh else None
 
 
@@ -340,6 +344,7 @@ class Show:
         self.furbies = {}  # name → Furby
         self.wake = wake or asyncio.Event()
         self.last = None
+        self.played = []  # scenes played since their pool last ran out, for pick_scene
         self.greeted = None  # ticks_ms() when the last greeting ended, for the sensor cooldown
         self.pressed = False  # a trigger that isn't from the sensor, which always counts
         self.playing = False  # true during a scene, e.g. to light an LED
@@ -600,13 +605,15 @@ class Show:
         Someone at the door is greeted by whoever's connected first, and the
         scan for a missing Furby comes after, so they don't wait on it.
         """
-        scene = pick_scene(self.scenes(True), self.present(), self.last) if greeting else None
+        scene = pick_scene(self.scenes(True), self.present(), self.last, self.played) if greeting else None
         greet_first = bool(scene)
         if not greet_first:
             await self.reconnect()
-        scene = scene or pick_scene(self.scenes(greeting), self.present(), self.last)
+        pool = self.scenes(greeting)
+        scene = scene or pick_scene(pool, self.present(), self.last, self.played)
         if not scene and greeting:  # no greeting playable with who's here: anything will do
-            scene = pick_scene(self.plan["scenes"], self.present(), self.last)
+            pool = self.plan["scenes"]
+            scene = pick_scene(pool, self.present(), self.last, self.played)
         if not scene:  # guide() has already said who's missing
             if self.waiting_for() is None:
                 self.log("No scene to play with %s" % ", ".join(self.order))
@@ -620,6 +627,9 @@ class Show:
                 self.trace(e)
             self.cut_short = True
         self.last = scene
+        if scene in self.played:  # its pool has run out: deal a fresh one
+            self.played = [s for s in self.played if s not in pool]
+        self.played.append(scene)
         if greeting:  # even one that fell back to an ordinary scene starts the cooldown
             self.greeted = ticks_ms()
         if greet_first:  # now look for whoever's missing, or a busy porch would keep it from ever reconnecting

@@ -83,6 +83,11 @@ def slot_checksum(info):
     return int.from_bytes(bytes(info[13:17]), "big")
 
 
+def capitalized(name):
+    """Pink from pink. MicroPython's str has no capitalize()."""
+    return name[:1].upper() + name[1:]
+
+
 def step_parts(step):
     """The clips one scene step plays together: "pink.a + blue.a" → ["pink.a", "blue.a"]."""
     return [part.strip() for part in step.split("+")]
@@ -393,9 +398,9 @@ class Show:
             return "If they're singing together, take the batteries out of one and power them up one at a time."
         if not here:
             return "Put batteries in (or wake) only the %s Furby. Wake the others once it connects." % name
-        others = "%s %s" % (" and ".join(n.capitalize() for n in here), "is" if len(here) == 1 else "are")
+        others = "%s %s" % (" and ".join(capitalized(n) for n in here), "is" if len(here) == 1 else "are")
         if name in self.seen:  # it dropped mid-show
-            return "%s dropped. %s still connected; wake %s again." % (name.capitalize(), others, name)
+            return "%s dropped. %s still connected; wake %s again." % (capitalized(name), others, name)
         return "%s connected. Now power up %s." % (others, name)
 
     def guide(self):

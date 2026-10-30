@@ -21,7 +21,8 @@ show asks for them one at a time, and the LED says which (see led_pattern):
     off                 every Furby is connected, between scenes
 
 The same goes for a Furby that drops mid-show. The show also prints what to
-do over USB serial (mpremote).
+do over USB serial (mpremote), and keeps the same log in log.txt on the board,
+with why it started, connect errors and a status line every five minutes.
 
 Safe boot: hold the button while plugging the board in to skip the show and
 stay at the REPL, e.g. to copy new files. Otherwise a watchdog reboots the
@@ -35,6 +36,8 @@ over, for about 30 s, and the board restarts; the error is on USB serial.
 Copy everything to the board with firmware/deploy.sh.
 """
 
+import io
+import os
 import sys
 import time
 
@@ -57,6 +60,46 @@ CRASH_MS = 30_000  # how long to blink that before restarting
 BLINK_MS = 100  # the status LED's pattern steps (see led_pattern)
 WATCHDOG_MS = 120_000  # reboot if not fed for this long
 STALL_MS = 300_000  # stop feeding the watchdog if the show makes no progress for this long
+# A just-woken Furby can ignore the DLC question for over 15 s (3 tries, 5 s
+# each), and giving up costs a whole rescan, so ask for up to 40 s.
+IDENTIFY_ATTEMPTS = 8
+# Everything the board prints also goes to log.txt on the board, so a run on
+# battery can be read afterwards with firmware/getlog.sh.
+# Past LOG_MAX it moves to log.txt.old. Only on the board, so tests write nothing.
+LOG_PATH = "log.txt" if sys.implementation.name == "micropython" else None
+LOG_MAX = 100_000
+STATUS_S = 300  # how often to log a status line (uptime, Furbies, scenes, memory)
+
+
+def uptime_s():
+    return time.ticks_ms() // 1000 if hasattr(time, "ticks_ms") else int(time.monotonic())
+
+
+def say(line):
+    """Print a line with the seconds since boot, and append it to LOG_PATH."""
+    line = "[%6d] %s" % (uptime_s(), line)
+    print(line)
+    if not LOG_PATH:
+        return
+    try:
+        try:
+            if os.stat(LOG_PATH)[6] > LOG_MAX:
+                os.rename(LOG_PATH, LOG_PATH + ".old")
+        except OSError:  # no log yet
+            pass
+        with open(LOG_PATH, "a") as f:
+            f.write(line + "\n")
+    except OSError:  # a full or failing filesystem mustn't stop the show
+        pass
+
+
+def exception_text(error):
+    """An exception's traceback where MicroPython gives one, else its repr."""
+    if not hasattr(sys, "print_exception"):
+        return repr(error)
+    buf = io.StringIO()
+    sys.print_exception(error, buf)
+    return buf.getvalue().rstrip()
 
 
 def crashed(error):
@@ -65,13 +108,9 @@ def crashed(error):
     Needs nothing but machine, so it works even when an import is what failed.
     Holding the button (safe boot) stops at the REPL instead, to fix the files.
     """
-    print("The show couldn't start:")
-    if hasattr(sys, "print_exception"):
-        sys.print_exception(error)
-    else:
-        print(repr(error))
+    say("The show couldn't start:\n" + exception_text(error))
     if machine.Pin(BUTTON_PIN, machine.Pin.IN, machine.Pin.PULL_UP).value() == 0:
-        print("Button held: safe boot, staying at the REPL")
+        say("Button held: safe boot, staying at the REPL")
         raise error
     led = machine.Pin(LED_PIN, machine.Pin.OUT)
     for i in range(CRASH_MS // BLINK_MS):
@@ -82,6 +121,8 @@ def crashed(error):
 
 try:  # everything that can fail to load: an old furbyshow.py, a missing aioble
     import asyncio
+    import binascii
+    import gc
     import json
     from collections import deque
 
@@ -102,6 +143,9 @@ class AiobleFurby(furbyshow.Furby):
         super().__init__(device.addr_hex())
         self.device = device
         self.connection = None
+        self.step = "connecting"  # how far connect() got, for its error message
+        self.rssi = None  # signal strength in the scan, dBm
+        self.heard, self.last_heard = 0, None  # notifications since connecting, for errors
 
     def connected(self):
         return self.connection is not None and self.connection.is_connected()
@@ -114,8 +158,11 @@ class AiobleFurby(furbyshow.Furby):
             await self.connection.disconnect()
 
     async def connect(self):
+        self.step = "connecting"
+        self.heard, self.last_heard = 0, None
         self.connection = await self.device.connect(timeout_ms=20000)
         try:
+            self.step = "finding its Bluetooth service"
             service = await self.connection.service(SERVICE)
             self.tx = await service.characteristic(WRITE)
             self.rx = await service.characteristic(LISTEN)
@@ -125,7 +172,12 @@ class AiobleFurby(furbyshow.Furby):
             self.rx._notify_queue = deque((), 32)
             await self.rx.subscribe(notify=True)
             asyncio.create_task(self.listen())
-            await self.identify()
+            self.step = "asking which DLC it has"
+            asked = furbyshow.ticks_ms()
+            await self.identify(attempts=IDENTIFY_ATTEMPTS)
+            waited = furbyshow.ticks_diff(furbyshow.ticks_ms(), asked)
+            if waited > 5000:  # it missed the first try: say so, to learn how long Furbies take
+                say("%s took %d s to say which DLC it has" % (self.name, waited // 1000))
         except Exception:
             await self.disconnect()
             raise
@@ -133,7 +185,9 @@ class AiobleFurby(furbyshow.Furby):
     async def listen(self):
         while self.connected():
             try:
-                self.on_response(await self.rx.notified(timeout_ms=5000))
+                data = await self.rx.notified(timeout_ms=5000)
+                self.heard, self.last_heard = self.heard + 1, data
+                self.on_response(data)
             except asyncio.TimeoutError:
                 pass
             except Exception:  # disconnected; the show reconnects
@@ -142,19 +196,29 @@ class AiobleFurby(furbyshow.Furby):
 
 async def find(known, scan_ms=5000):
     """Connect to Furbies in range that aren't already connected."""
-    devices = []
+    devices, rssi = [], {}
     async with aioble.scan(scan_ms, interval_us=30000, window_us=30000, active=True) as scanner:
         async for result in scanner:
             name = result.name() or ""
-            if name.startswith("Furby") and result.device.addr_hex() not in known and result.device not in devices:
-                devices.append(result.device)
+            if name.startswith("Furby") and result.device.addr_hex() not in known:
+                rssi[result.device.addr_hex()] = max(result.rssi, rssi.get(result.device.addr_hex(), -999))
+                if result.device not in devices:
+                    devices.append(result.device)
     furbies = []
     for device in devices:  # one at a time: aioble cancels scans and pending connects on each connect
         furby = AiobleFurby(device)
+        furby.rssi = rssi.get(furby.address)
         try:
             await furby.connect()
         except Exception as e:
-            print("Couldn't connect to %s: %r" % (furby.address, e))  # repr: aioble's errors often have no message
+            # repr: aioble's errors often have no message. Signal under about -85 dBm is weak.
+            # Nothing heard means the connection never worked; heard but no answer, a busy Furby.
+            heard = ""
+            if furby.step == "asking which DLC it has":
+                last = binascii.hexlify(bytes(furby.last_heard)).decode() if furby.last_heard else None
+                heard = ", heard %d message%s" % (furby.heard, "" if furby.heard == 1 else "s")
+                heard += ", the last %s" % last if last else ""
+            say("Couldn't connect to %s (%s dBm) while %s: %r%s" % (furby.address, furby.rssi, furby.step, e, heard))
             continue
         furbies.append(furby)
     return furbies
@@ -165,7 +229,7 @@ async def watchdog(show, wdt):
     while show.stalled_ms() < STALL_MS:
         wdt.feed()
         await asyncio.sleep(5)
-    print("Show stalled; the watchdog will reboot the board")
+    say("Show stalled; the watchdog will reboot the board")
 
 
 SOLID = (1,)
@@ -199,15 +263,48 @@ async def status_light(show, led):
         await asyncio.sleep(BLINK_MS / 1000)
 
 
+scenes_played = 0
+
+
 def log(line):
-    """Print a line from the show with the seconds since boot, to read a serial capture by."""
-    print("[%6d] %s" % (furbyshow.ticks_ms() // 1000, line))
+    """The show's log: say() it, counting scenes for the status line."""
+    global scenes_played
+    if line.startswith("Scene: "):
+        scenes_played += 1
+    say(line)
 
 
 def trace(error):
-    """Print where an error came from, as well as the one line the show logs about it."""
+    """Log where an error came from, as well as the one line the show logs about it."""
     if hasattr(sys, "print_exception"):
-        sys.print_exception(error)
+        say(exception_text(error))
+
+
+async def status(show, every_s=STATUS_S):
+    """Log a line every so often, so a quiet log reads as alive rather than hung,
+    and a slow leak shows up as falling free memory before it crashes the show."""
+    while True:
+        await asyncio.sleep(every_s)
+        gc.collect()
+        free = "%d KB free" % (gc.mem_free() // 1024) if hasattr(gc, "mem_free") else "memory unknown"
+        here = ", ".join(n for n in show.order if n in show.present()) or "no Furbies"
+        say("Status: up %d min, %s connected, %d scenes, %s" % (uptime_s() // 60, here, scenes_played, free))
+
+
+def reset_reason():
+    """Why the board last started. On the ESP32 a hard reset covers a crash, a power dip and the reset button."""
+    names = (
+        ("PWRON_RESET", "power-on"),
+        ("HARD_RESET", "a hard reset (a crash, a power dip or the reset button)"),
+        ("WDT_RESET", "the watchdog (the show hung)"),
+        ("DEEPSLEEP_RESET", "waking from deep sleep"),
+        ("SOFT_RESET", "a soft reset (e.g. deploy.sh)"),
+    )
+    cause = machine.reset_cause()
+    for attr, name in names:
+        if cause == getattr(machine, attr, None):
+            return name
+    return "reset cause %s" % cause
 
 
 async def main(plan_path="show.json"):
@@ -226,6 +323,7 @@ async def main(plan_path="show.json"):
         pir.irq(lambda _: show.trigger(sensor=True), machine.Pin.IRQ_RISING)
     asyncio.create_task(watchdog(show, machine.WDT(timeout=WATCHDOG_MS)))
     asyncio.create_task(status_light(show, machine.Pin(LED_PIN, machine.Pin.OUT)))
+    asyncio.create_task(status(show))
     await show.run()
 
 
@@ -236,10 +334,9 @@ def safe_boot():
 
 if __name__ == "__main__":
     if safe_boot():
-        print("Button held: safe boot, show not started")
+        say("Button held: safe boot, show not started")
     else:
-        watchdog_reset = machine.reset_cause() == machine.WDT_RESET
-        print("Starting the show" + (" after the watchdog restarted the board" if watchdog_reset else ""))
+        say("Starting the show after %s" % reset_reason())
         try:
             asyncio.run(main())
         except Exception as e:

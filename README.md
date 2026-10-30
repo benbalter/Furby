@@ -510,6 +510,8 @@ The board starts the show on power-up, keeps both Furbies awake, plays a random 
 
 A Furby that drops mid-show gets the same blinks again. A watchdog reboots it if the show ever hangs. Hold the button while plugging it in to skip the show.
 
+The board also keeps its log in `log.txt`, so a night on battery can be read the next morning: plug it in and run `firmware/getlog.sh`, which saves it to `build/board-log/` and shows the end of it. Copying stops the show, so the board restarts afterwards. To watch it live instead, run `uv run tools/watch_board.py`: it only listens, so it can't stop the show, and it carries on through restarts. `uv run doctor.py --board` checks that the board has this checkout's firmware, show and aioble, and how much room its log has left (it restarts the show too). Each start says why the board started (power-on, the watchdog, or a crash or power dip), a status line every five minutes says who was connected and how many scenes had played, and a Furby that wouldn't connect says how far it got.
+
 ### Antenna lights
 
 While a Furby speaks, its antenna plays a light that matches the clip's eyes and moves with the sound. `halloween.py` measures each clip's loudness ten times a second and stores it in `show.json`, and the show engine updates the antenna from it while the line plays, so a cackle flickers and a scream flashes.

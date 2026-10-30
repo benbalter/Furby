@@ -7,12 +7,15 @@ Check that everything the Halloween show needs is in place, and say how to fix w
 USAGE:
     uv run doctor.py             # tools, Bluetooth, show.toml's clips, the built DLCs
     uv run doctor.py --furbies   # also check the awake Furby (wake one at a time)
+    uv run doctor.py --board     # also check the ESP32 on USB has the current show (restarts it)
 
 It checks, in order: Python and uv; ffmpeg; the Python packages; that this
 computer can scan for Bluetooth devices; that every clip in show.toml exists;
 that build/halloween has a DLC per Furby, small enough to upload and matching
 show.json; and, with --furbies, that the awake Furby has the right DLC
-active (wake one at a time: two awake together can't be found). Each problem
+active (wake one at a time: two awake together can't be found); and, with
+--board, that the ESP32 on USB has this main.py, furbyshow and show.json, the
+aioble that deploy.sh pins, and room for its log. Each problem
 gets a ❌ and a one-line fix. It exits non-zero if anything needs fixing, so
 scripts can use it too.
 """
@@ -20,13 +23,17 @@ scripts can use it too.
 import argparse
 import asyncio
 import contextlib
+import hashlib
 import importlib.util
 import io
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
+import tempfile
+import urllib.request
 import zlib
 
 MAC = sys.platform == "darwin"
@@ -43,6 +50,36 @@ devices = asyncio.run(BleakScanner.discover(timeout=5))
 print(len(devices), sum(1 for d in devices if (d.name or "").startswith("Furby")))
 """
 PACKAGES = {"PIL": "pillow", "a1800_codec": "a1800-codec", "bleak": "bleak"}
+# Runs on the board (MicroPython) via mpremote exec: hashes of the show's files
+# and aioble's, the log's size and the free flash, as one line of JSON.
+BOARD_PROBE = """
+import os, sys, json, hashlib, binascii
+def h(p):
+    try:
+        d = hashlib.sha256()
+        with open(p, 'rb') as f:
+            while True:
+                b = f.read(1024)
+                if not b:
+                    break
+                d.update(b)
+        return binascii.hexlify(d.digest()).decode()
+    except OSError:
+        return None
+def size(p):
+    try:
+        return os.stat(p)[6]
+    except OSError:
+        return None
+try:
+    lib = ['lib/aioble/' + n for n in os.listdir('/lib/aioble')]
+except OSError:
+    lib = []
+st = os.statvfs('/')
+print(json.dumps({'files': {p: h(p) for p in ['main.py', 'furbyshow.mpy', 'furbyshow.py', 'show.json'] + lib},
+    'log': size('log.txt'), 'free': st[0] * st[3], 'mpy': sys.implementation._mpy & 0xff}))
+"""
+LOW_FLASH = 200_000  # bytes free on the board below which its log may stop being written
 
 
 class Report:
@@ -284,12 +321,121 @@ async def check_furbies(r, plan, find=None):
         )
 
 
+def sha256_file(path):
+    with open(path, "rb") as f:
+        return hashlib.sha256(f.read()).hexdigest()
+
+
+def compile_mpy(source):
+    """furbyshow.mpy as deploy.sh builds it, or None if mpy-cross can't run."""
+    with tempfile.TemporaryDirectory() as tmp:
+        out = os.path.join(tmp, "furbyshow.mpy")
+        try:
+            subprocess.run(
+                ["uvx", "--from", "mpy-cross", "mpy-cross", "-o", out, source],
+                capture_output=True,
+                check=True,
+                timeout=120,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return None
+        return sha256_file(out)
+
+
+def aioble_manifest(deploy_sh, mpy):
+    """{path: short hash} for the aioble deploy.sh pins, from micropython.org, or None offline."""
+    with open(deploy_sh) as f:
+        pin = re.search(r"AIOBLE=\(aioble@([\d.]+)\)", f.read())
+    if not pin:
+        return None
+    url = "https://micropython.org/pi/v2/package/%d/aioble/%s.json" % (mpy, pin.group(1))
+    try:
+        with urllib.request.urlopen(url, timeout=10) as response:
+            return {path: short for path, short in json.load(response)["hashes"]}
+    except (OSError, ValueError, KeyError):
+        return None
+
+
+def probe_board(port="auto", run=subprocess.run):
+    """Run BOARD_PROBE on the board and restart its show; returns the probe's dict, or an error string."""
+    try:
+        result = run(
+            ["uvx", "mpremote", "connect", port, "exec", BOARD_PROBE, "+", "reset"],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+    except (OSError, subprocess.SubprocessError) as e:
+        return str(e)
+    for line in reversed(result.stdout.splitlines()):
+        if line.startswith("{"):
+            return json.loads(line)
+    said = (result.stderr or result.stdout).strip().splitlines()
+    return said[-1] if said else "no reply"  # e.g. mpremote's "no device found"
+
+
+def check_board(r, plan_path, port="auto", probe=probe_board, compile=compile_mpy, manifest=aioble_manifest):
+    """Check the ESP32 on USB runs this checkout's show: its files, aioble, and room for its log."""
+    board = probe(port)
+    if isinstance(board, str):
+        r.fail(
+            "Couldn't reach the board on USB (%s)." % board,
+            "Plug it in with a data cable (not charge-only), close any mpremote or watch_board.py, and run this again",
+        )
+        return
+    files = board["files"]
+    deploy = "firmware/deploy.sh"
+    expected = {
+        "main.py": sha256_file("firmware/main.py"),
+        "show.json": sha256_file(plan_path),
+        "furbyshow.mpy": compile("furbyshow.py"),
+    }
+    for name, want in expected.items():
+        have = files.get(name)
+        if have is None:
+            r.fail("The board has no %s." % name, deploy)
+        elif want is None:
+            r.warn("Couldn't build furbyshow.mpy here to compare with the board's.", "Check that uv can run mpy-cross")
+        elif have != want:
+            r.fail("The board's %s isn't this checkout's." % name, deploy)
+        else:
+            r.ok("The board's %s is current" % name)
+    if files.get("furbyshow.py"):
+        r.fail("The board has an old furbyshow.py, which MicroPython loads instead of furbyshow.mpy.", deploy)
+    lib = {path[len("lib/") :]: digest for path, digest in files.items() if path.startswith("lib/")}
+    known = manifest(deploy, board.get("mpy", 6))
+    if not lib:
+        r.fail("The board has no aioble.", deploy)
+    elif known is None:
+        r.warn("Couldn't check the board's aioble against micropython.org (offline?).")
+    else:
+        wrong = sorted(path for path, short in known.items() if (lib.get(path) or "")[: len(short)] != short)
+        if wrong:
+            r.fail("The board's aioble doesn't match what deploy.sh pins: %s." % ", ".join(wrong), deploy)
+        else:
+            r.ok("The board's aioble matches deploy.sh")
+    free = board.get("free") or 0
+    log = board.get("log")
+    message = "%d KB free on the board, log.txt %s" % (
+        free // 1000,
+        "%d KB" % (log // 1000) if log is not None else "not started",
+    )
+    if free < LOW_FLASH:
+        r.warn(message, "Copy the log off with firmware/getlog.sh, then delete it: uvx mpremote rm :log.txt")
+    else:
+        r.ok(message)
+
+
 def main(argv=None, out=print):
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--toml", default="./halloween/show.toml")
     parser.add_argument("--build-dir", default="./build/halloween")
     parser.add_argument("--furbies", action="store_true", help="also check the Furby that's awake (wake one at a time)")
     parser.add_argument("--no-bluetooth", action="store_true", help="skip the Bluetooth scan")
+    parser.add_argument(
+        "--board", action="store_true", help="also check the ESP32 on USB has this show (stops and restarts its show)"
+    )
+    parser.add_argument("--port", default="auto", help="the board's serial port, with --board (default: auto)")
     args = parser.parse_args(argv)
     r = Report(out)
     check_tools(r)
@@ -300,6 +446,8 @@ def main(argv=None, out=print):
         plan = check_build(r, show, args.build_dir, args.toml)
         if args.furbies and plan:
             asyncio.run(check_furbies(r, plan))
+        if args.board and plan:
+            check_board(r, os.path.join(args.build_dir, "show.json"), args.port)
     else:
         out("   (skipped the Bluetooth, clip and build checks until the packages are installed)")
     if r.failures:

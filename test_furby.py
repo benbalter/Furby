@@ -1336,6 +1336,12 @@ assert furbyshow.plan_order(text, json.loads(text)["furbies"]) == ["pink", "blue
 show = furbyshow.Show({"furbies": {"blue": {}, "pink": {}}}, find, order=["pink", "blue"])
 assert show.waiting_for() == "pink" and show.waiting_index() == 0, show.waiting_for()
 assert "only the pink Furby" in show.guidance(), show.guidance()
+# The messages once pink is here, which the board crashed on (no str.capitalize)
+pink = F("aa"); pink.name = "pink"
+show.furbies["pink"] = pink
+assert show.guidance() == "Pink is connected. Now power up blue.", show.guidance()
+show.seen.add("blue")
+assert show.guidance().startswith("Blue dropped. Pink is still connected"), show.guidance()
 print("ok")
 """
         result = subprocess.run(["micropython", "-c", script], capture_output=True, text=True, check=False,
@@ -1650,7 +1656,7 @@ class TestFirmware(unittest.TestCase):
 
         class Result:
             def __init__(self, device, name):
-                self.device, self._name = device, name
+                self.device, self._name, self.rssi = device, name, -60
 
             def name(self):
                 return self._name
@@ -1741,6 +1747,81 @@ class TestFirmware(unittest.TestCase):
         with redirect_stdout(io.StringIO()) as out, self.assertRaises(ImportError):
             self.load()
         self.assertIn("safe boot", out.getvalue())
+
+    def test_log_file(self):
+        """Every line goes to the log file too, which moves aside once it's too big"""
+        import io
+        import tempfile
+        from contextlib import redirect_stdout
+
+        path = os.path.join(tempfile.mkdtemp(), "log.txt")
+        self.main.LOG_PATH, self.main.LOG_MAX = path, 40  # the first two lines pass it
+        with redirect_stdout(io.StringIO()) as out:
+            self.main.log("Scene: pink.a")
+            self.main.say("second line")
+            self.main.say("third line, after the file passed LOG_MAX")
+        self.assertIn("Scene: pink.a", out.getvalue())
+        with open(path + ".old") as f:
+            self.assertEqual([line[9:] for line in f.read().splitlines()], ["Scene: pink.a", "second line"])
+        with open(path) as f:
+            self.assertIn("third line", f.read())
+        self.assertEqual(self.main.scenes_played, 1)
+        # A filesystem that won't take the line doesn't stop the show
+        self.main.LOG_PATH = os.path.join(path, "not-a-dir", "log.txt")
+        with redirect_stdout(io.StringIO()):
+            self.main.say("still fine")
+
+    def test_reset_reason(self):
+        """The boot line says why the board started, not only after the watchdog"""
+        machine = self.main.machine
+        machine.PWRON_RESET, machine.HARD_RESET, machine.WDT_RESET = 1, 2, 3
+        for cause, words in ((1, "power-on"), (2, "power dip"), (3, "watchdog"), (9, "reset cause 9")):
+            machine.reset_cause = lambda cause=cause: cause
+            self.assertIn(words, self.main.reset_reason())
+
+    def test_status(self):
+        """Every STATUS_S the board logs uptime, who's connected and how many scenes have played"""
+        import asyncio
+        import io
+        from contextlib import redirect_stdout
+        from unittest import mock
+
+        class FakeShow:
+            order = ["pink", "blue"]
+
+            def present(self):
+                return {"blue"}
+
+        sleeps = []
+
+        async def sleep(s):
+            sleeps.append(s)
+            if len(sleeps) > 1:
+                raise asyncio.CancelledError
+
+        self.main.scenes_played = 4
+        with mock.patch.object(self.main.asyncio, "sleep", sleep), redirect_stdout(io.StringIO()) as out:
+            with self.assertRaises(asyncio.CancelledError):
+                asyncio.run(self.main.status(FakeShow()))
+        self.assertEqual(sleeps, [self.main.STATUS_S] * 2)
+        self.assertIn("blue connected, 4 scenes", out.getvalue())
+
+    def test_connect_error_says_what_was_heard(self):
+        """A Furby that never answers which DLC it has: the error says how far it got and what it sent"""
+        import asyncio
+        import io
+        from contextlib import redirect_stdout
+        from unittest import mock
+
+        async def quiet_identify(furby, attempts=3):
+            furby.on_response(b"\x21\x01")  # a sensor report, but no 0x72 answer
+            furby.heard, furby.last_heard = 1, b"\x21\x01"
+            raise asyncio.TimeoutError
+
+        with mock.patch.object(self.main.AiobleFurby, "identify", quiet_identify), \
+                redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(asyncio.run(self.main.find([])), [])
+        self.assertIn("(-60 dBm) while asking which DLC it has: TimeoutError(), heard 1 message, the last 2101", out.getvalue())
 
     def test_safe_boot(self):
         """Holding the button at power-up skips the show"""
@@ -2417,6 +2498,60 @@ class TestDoctor(unittest.TestCase):
             )
         return toml
 
+    def test_board(self):
+        """--board compares the ESP32's files with this checkout's, and says to redeploy what differs"""
+        import hashlib
+
+        import doctor
+
+        plan = os.path.join(self.temp_dir, "show.json")
+        with open(plan, "w") as f:
+            f.write("{}")
+        digest = doctor.sha256_file
+        lib = {"aioble/core.mpy": "c74327b4"}
+        board = {
+            "files": {
+                "main.py": digest("firmware/main.py"),
+                "show.json": digest(plan),
+                "furbyshow.mpy": "mpy",
+                "furbyshow.py": None,
+                "lib/aioble/core.mpy": "c74327b4" + "0" * 56,
+            },
+            "log": 12_000,
+            "free": 5_000_000,
+            "mpy": 6,
+        }
+
+        def check(board, **kw):
+            self.lines.clear()
+            r = self.report()
+            doctor.check_board(
+                r, plan, probe=lambda port: board, compile=lambda src: "mpy", manifest=lambda sh, mpy: lib, **kw
+            )
+            return r
+
+        r = check(board)
+        self.assertEqual(r.failures, 0, self.lines)
+        self.assertIn("5000 KB free on the board, log.txt 12 KB", self.lines[-1])
+        # A stale main.py and a mixed-up aioble (today's bug) each say to redeploy
+        stale = dict(board, files=dict(board["files"], **{
+            "main.py": hashlib.sha256(b"old").hexdigest(), "lib/aioble/core.mpy": "eeffc4e5" + "0" * 56}))
+        r = check(stale)
+        self.assertEqual(r.failures, 2, self.lines)
+        self.assertTrue(any("main.py isn't this checkout's" in line for line in self.lines))
+        self.assertTrue(any("aioble doesn't match" in line and "core.mpy" in line for line in self.lines))
+        # An old furbyshow.py would hide the .mpy
+        r = check(dict(board, files=dict(board["files"], **{"furbyshow.py": "x"})))
+        self.assertEqual(r.failures, 1, self.lines)
+        # No board at all
+        r = check("mpremote: no device found")
+        self.assertEqual(r.failures, 1)
+        self.assertIn("no device found", self.lines[0])
+        # Low flash is a warning with a way out
+        r = check(dict(board, free=100_000))
+        self.assertEqual((r.failures, r.warnings), (0, 1))
+        self.assertIn("getlog.sh", self.lines[-1])
+
     def test_clips(self):
         """A missing clip fails with how to get it; a missing optional one only warns"""
         import doctor
@@ -2908,6 +3043,59 @@ class TestScripts(unittest.TestCase):
             with self.subTest(script=os.path.relpath(path, root)):
                 self.assertEqual(proc.returncode, 0, err)
                 self.assertIn("usage:", out)
+
+class TestWatchBoard(unittest.TestCase):
+    """tools/watch_board.py prints and saves the board's lines, and waits out a restart"""
+
+    def test_watch(self):
+        import io
+        import sys
+        import types
+        from unittest import mock
+
+        sys.path.insert(0, "tools")
+        try:
+            import watch_board
+        finally:
+            sys.path.remove("tools")
+
+        class SerialException(Exception):
+            pass
+
+        batches = [[b"[     1] Starting the show after power-on\r\n", b""], SerialException("gone"),
+                   [b"[     0] Put batteries in\r\n"]]
+
+        class Serial:
+            def __init__(self, path, baud, timeout):
+                batch = batches.pop(0)
+                if isinstance(batch, Exception):
+                    raise batch
+                self.lines = batch
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                pass
+
+            def readline(self):
+                if not self.lines:
+                    if not batches:
+                        raise KeyboardInterrupt  # the test's way to stop
+                    raise SerialException("board restarted")
+                return self.lines.pop(0)
+
+        fake = types.SimpleNamespace(Serial=Serial, SerialException=SerialException)
+        out, saved = [], io.StringIO()
+        with mock.patch.dict(sys.modules, serial=fake), mock.patch.object(watch_board.time, "sleep", lambda s: None), \
+                mock.patch.object(watch_board.os.path, "exists", lambda p: True):
+            with self.assertRaises(KeyboardInterrupt):
+                watch_board.watch("/dev/fake", 0, out.append, saved)
+        lines = [line for line in out if not line.startswith("(")]
+        self.assertEqual(lines, ["[     1] Starting the show after power-on", "[     0] Put batteries in"])
+        self.assertEqual(saved.getvalue().splitlines(), lines)
+        self.assertTrue(any("waiting" in line for line in out))
+
 
 class FakeEngine:
     """A text-to-speech engine that writes the words and voice instead of audio"""

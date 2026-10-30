@@ -16,7 +16,10 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-AIOBLE=(aioble-core@0.4.0 aioble-central@0.3.0 aioble-client@0.3.0)
+# The whole bundle, not aioble-core/-central/-client: the index has two builds
+# of aioble-client 0.3.0, and the pinned one brings an older core.mpy that
+# breaks central's connect ("function takes 5 positional arguments").
+AIOBLE=(aioble@0.6.2)
 SHOW=build/halloween/show.json
 
 if [[ ! -f $SHOW ]]; then

@@ -51,7 +51,7 @@ LED_PIN = 21  # and its onboard LED
 #     button). Any other header pin will do.
 #   - On the sensor: jumper on H (repeat trigger), the time pot all the way
 #     down (about 3 s), and allow it a minute to settle after power-up.
-PIR_PIN = None
+PIR_PIN = 4  # A0/IO4 on the FireBeetle header
 CRASH_BLINKS = (1, 1, 1, 1, 0) * 3 + (0,) * 6  # three long blinks: the show couldn't start
 CRASH_MS = 30_000  # how long to blink that before restarting
 BLINK_MS = 100  # the status LED's pattern steps (see led_pattern)
@@ -154,7 +154,7 @@ async def find(known, scan_ms=5000):
         try:
             await furby.connect()
         except Exception as e:
-            print("Couldn't connect to %s: %s" % (furby.address, e))
+            print("Couldn't connect to %s: %r" % (furby.address, e))  # repr: aioble's errors often have no message
             continue
         furbies.append(furby)
     return furbies

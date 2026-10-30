@@ -1764,7 +1764,8 @@ class TestFirmware(unittest.TestCase):
 
         # CPython has no ThreadSafeFlag; an Event stands in for it
         with mock.patch.object(self.main.furbyshow.Show, "run", run), \
-                mock.patch.object(asyncio, "ThreadSafeFlag", asyncio.Event, create=True):
+                mock.patch.object(asyncio, "ThreadSafeFlag", asyncio.Event, create=True), \
+                mock.patch.object(self.main, "PIR_PIN", None):
             asyncio.run(self.main.main(plan))
             self.assertEqual(self.irqs, {self.main.BUTTON_PIN: self.main.machine.Pin.IRQ_FALLING})
             self.main.PIR_PIN = 5

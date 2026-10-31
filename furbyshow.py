@@ -358,6 +358,7 @@ class Show:
         self.empty_scans = 0  # scans in a row that connected nobody new
         self.guided = None  # the power-up state last logged by guide()
         self.cut_short = False  # a Furby dropped during the last scene
+        self.requested = None  # a scene asked for by name (request()), played next
 
     def stalled_ms(self):
         """How long since the show last made progress."""
@@ -414,6 +415,24 @@ class Show:
         if not sensor:
             self.pressed = True
         self.wake.set()
+
+    def request(self, scene):
+        """Play this scene next, e.g. ["pink.cackle"] or one of plan["scenes"], from a remote.
+
+        It counts as a button press: it plays as soon as the current scene ends,
+        and the sensor's cooldown doesn't apply. Raises ValueError for a clip the
+        show doesn't have, so the caller can say so.
+        """
+        scene = list(scene)
+        for step in scene:
+            for part in step_parts(step):
+                name, _, clip = part.partition(".")
+                if clip not in self.plan["furbies"].get(name, {}).get("clips", {}):
+                    raise ValueError("No clip %s in this show" % part)
+        if not scene:
+            raise ValueError("An empty scene")
+        self.requested = scene
+        self.trigger()
 
     def scenes(self, greeting=False):
         """The scenes to pick from: greetings when someone arrives, the rest on the timer."""
@@ -603,13 +622,35 @@ class Show:
         finally:
             self.guide()
 
+    async def attempt(self, scene):
+        """Play a scene, logging (not raising) what stops it; sets cut_short if it was."""
+        self.cut_short = False
+        try:
+            await self.play_scene(scene)
+        except Exception as e:
+            self.log("Scene interrupted: %s" % e)
+            if self.trace:
+                self.trace(e)
+            self.cut_short = True
+
     async def run_once(self, greeting=False):
         """Connect what's missing, play one scene if possible; returns how long to wait.
 
         greeting picks from the greetings, for when someone has just arrived.
         Someone at the door is greeted by whoever's connected first, and the
         scan for a missing Furby comes after, so they don't wait on it.
+        A scene from request() comes before either, outside the shuffled deck.
         """
+        requested, self.requested = self.requested, None
+        if requested:
+            needed = {p.split(".")[0] for step in requested for p in step_parts(step)}
+            missing = sorted(needed - self.present())
+            if not missing:
+                await self.attempt(requested)
+                await self.reconnect()
+                return RETRY_FIND_S if self.cut_short else random.uniform(self.plan["every"][0], self.plan["every"][1])
+            self.log("Can't play %s: %s not connected" % (" -> ".join(requested), " and ".join(missing)))
+            greeting = False  # the request was the trigger, not someone at the door
         scene = pick_scene(self.scenes(True), self.present(), self.last, self.played) if greeting else None
         greet_first = bool(scene)
         if not greet_first:
@@ -623,14 +664,7 @@ class Show:
             if self.waiting_for() is None:
                 self.log("No scene to play with %s" % ", ".join(self.order))
             return RETRY_FIND_S
-        self.cut_short = False
-        try:
-            await self.play_scene(scene)
-        except Exception as e:
-            self.log("Scene interrupted: %s" % e)
-            if self.trace:
-                self.trace(e)
-            self.cut_short = True
+        await self.attempt(scene)
         self.last = scene
         if scene in self.played:  # its pool has run out: deal a fresh one
             self.played = [s for s in self.played if s not in pool]

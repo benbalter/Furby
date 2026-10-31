@@ -81,7 +81,8 @@ def main(argv=None):
         save = open(path, "w")
         print("Saving to %s. Ctrl-C to stop." % path, file=sys.stderr)
     try:
-        watch(args.port, args.seconds, print, save)
+        # flush: piped into a file or another tool, print would hold lines back until it exits
+        watch(args.port, args.seconds, lambda line: print(line, flush=True), save)
     except KeyboardInterrupt:
         pass
     finally:

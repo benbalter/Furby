@@ -1,0 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Ben Balter
+// SPDX-License-Identifier: MIT
+
+// Settings for every build. Your own signing team goes in Local.xcconfig, which
+// isn't committed; the ? makes it optional, so the project still opens without it.
+#include? "Local.xcconfig"

@@ -23,7 +23,7 @@ mkdir -p "$out"
 mpremote=(uvx mpremote connect "${PORT:-auto}")
 "${mpremote[@]}" cp :log.txt "$out/log-$stamp.txt"
 # Only there once the log has passed LOG_MAX (firmware/main.py)
-if "${mpremote[@]}" cp :log.txt.old "$out/log-$stamp.old.txt" 2>/dev/null; then
+if "${mpremote[@]}" cp :log.txt.old "$out/log-$stamp.old.txt" >/dev/null 2>&1; then
   echo "Also saved the older log: $out/log-$stamp.old.txt"
 fi
 "${mpremote[@]}" reset

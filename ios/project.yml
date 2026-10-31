@@ -1,0 +1,45 @@
+# SPDX-FileCopyrightText: 2026 Ben Balter
+# SPDX-License-Identifier: MIT
+#
+# The iPhone remote's Xcode project, as code. XcodeGen turns this into
+# FurbyRemote.xcodeproj (generated, not committed):
+#
+#   brew install xcodegen
+#   cd ios && xcodegen
+#   open FurbyRemote.xcodeproj
+#
+# Signing needs your Apple developer team ID: copy Local.xcconfig.example to
+# Local.xcconfig (not committed) and fill it in. See ios/README.md.
+name: FurbyRemote
+options:
+  bundleIdPrefix: com.benbalter
+  deploymentTarget:
+    iOS: "17.0"
+packages:
+  FurbyRemoteKit:
+    path: FurbyRemoteKit
+configFiles:
+  Debug: Base.xcconfig
+  Release: Base.xcconfig
+targets:
+  FurbyRemote:
+    type: application
+    platform: iOS
+    sources: [FurbyRemote]
+    dependencies:
+      - package: FurbyRemoteKit
+    info:
+      path: FurbyRemote/Info.plist  # generated from these properties
+      properties:
+        CFBundleDisplayName: Furby Remote
+        NSBluetoothAlwaysUsageDescription: Connects to the Furby show's board to show what it's doing and play scenes.
+        UIBackgroundModes: [bluetooth-central]  # stay connected, and alert on errors, with the app in the background
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.benbalter.FurbyRemote
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon  # Assets.xcassets, drawn by tools/app_icon.py
+        SWIFT_VERSION: "6.0"
+        CODE_SIGN_STYLE: Automatic
+        TARGETED_DEVICE_FAMILY: "1"  # iPhone

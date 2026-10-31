@@ -1114,6 +1114,57 @@ class TestHalloween(unittest.TestCase):
         self.assertEqual(events, ["scan", "play"])
         self.assertIsNotNone(show.greeted)
 
+    def test_request(self):
+        """A remote can ask for a scene or clip: it plays next, outside the deck, and only if it exists"""
+        import asyncio
+
+        import furbyshow
+
+        played, logs = [], []
+
+        class F(furbyshow.Furby):
+            def connected(self):
+                return True
+
+            async def _write(self, data):
+                if data[0] == 0x13:
+                    played.append(tuple(data[2:]))
+                    self.on_response(furbyshow.SEQUENCE_PLAYING)
+
+        async def find(known):
+            return []
+
+        async def sleep(seconds):
+            pass
+
+        a, b = {"action": [75, 0, 0, 1], "seconds": 1.0}, {"action": [75, 0, 0, 2], "seconds": 1.0}
+        plan = {
+            "gap": 0, "every": [30, 60], "cooldown": 100,
+            "scenes": [["pink.a"]], "greetings": [["pink.a"]],
+            "furbies": {"pink": {"clips": {"a": a, "b": b}}, "blue": {"clips": {"a": a}}},
+        }
+        show = furbyshow.Show(plan, find, sleep=sleep, log=logs.append)
+        show.furbies["pink"] = F("aa")
+        for bad in (["pink.zzz"], ["green.a"], ["pink.a + pink.nope"], []):
+            with self.assertRaises(ValueError):
+                show.request(bad)
+        self.assertIsNone(show.requested)
+        # A clip plays at once, even right after a greeting (it's a press, not the sensor)
+        show.greeted = furbyshow.ticks_ms()
+        show.request(["pink.b"])
+        self.assertTrue(asyncio.run(show.wait(5)))
+        asyncio.run(show.run_once(greeting=True))
+        self.assertEqual(played, [(75, 0, 0, 2)])
+        self.assertIn("Scene: pink.b", logs)
+        self.assertEqual(show.played, [])  # outside the deck
+        self.assertIsNone(show.requested)
+        # One whose Furby isn't here says so, then the show carries on with an ordinary scene
+        played.clear()
+        show.request(["blue.a"])
+        asyncio.run(show.run_once(greeting=True))
+        self.assertIn("Can't play blue.a: blue not connected", logs)
+        self.assertEqual(played, [(75, 0, 0, 1)])
+
     def test_keep_alive(self):
         """A connected Furby gets a keepalive after a few quiet seconds, and a failed one doesn't stop it"""
         import asyncio
@@ -1342,6 +1393,15 @@ show.furbies["pink"] = pink
 assert show.guidance() == "Pink is connected. Now power up blue.", show.guidance()
 show.seen.add("blue")
 assert show.guidance().startswith("Blue dropped. Pink is still connected"), show.guidance()
+# A remote's request plays next
+async def requested():
+    show = furbyshow.Show(plan, find, sleep=sleep, log=lambda *a: None)
+    await show.connect_missing()
+    sent.clear()
+    show.request(["pink.a"])
+    await show.run_once()
+asyncio.run(requested())
+assert bytes([0x13, 0, 75, 0, 0, 2]) in sent, sent
 print("ok")
 """
         result = subprocess.run(["micropython", "-c", script], capture_output=True, text=True, check=False,
@@ -1580,6 +1640,7 @@ class TestFirmware(unittest.TestCase):
         # DLC name each fake Furby reports; None means no active DLC
         self.furbies = {"aa": b"PINK", "bb": None}
         self.disconnected = []
+        self.drop_73 = 0  # how many 0x73 questions the fake Furbies ignore
 
         class Pin:
             IN, OUT, PULL_UP, PULL_DOWN, IRQ_FALLING, IRQ_RISING = 0, 1, 2, 5, 3, 4
@@ -1621,6 +1682,9 @@ class TestFirmware(unittest.TestCase):
                 if data == b"\x72":
                     self.connection.inbox.put_nowait(bytes.fromhex("72000020000000" + ("2000" if name else "0000")))
                 elif data == bytes([0x73, 13]):
+                    if test.drop_73:
+                        test.drop_73 -= 1
+                        return
                     self.connection.inbox.put_nowait(b"\x73\x0d____" + name + bytes.fromhex("03a236cafd6934"))
 
         class Service:
@@ -1788,9 +1852,16 @@ class TestFirmware(unittest.TestCase):
 
         class FakeShow:
             order = ["pink", "blue"]
+            playing = False
 
             def present(self):
                 return {"blue"}
+
+            def waiting_for(self):
+                return "pink"
+
+            def stuck(self):
+                return False
 
         sleeps = []
 
@@ -1814,14 +1885,33 @@ class TestFirmware(unittest.TestCase):
         from unittest import mock
 
         async def quiet_identify(furby, attempts=3):
-            furby.on_response(b"\x21\x01")  # a sensor report, but no 0x72 answer
-            furby.heard, furby.last_heard = 1, b"\x21\x01"
+            furby.heard = {"7200": 3, "2101": 1}  # answered 0x72, never 0x73
             raise asyncio.TimeoutError
 
         with mock.patch.object(self.main.AiobleFurby, "identify", quiet_identify), \
                 redirect_stdout(io.StringIO()) as out:
             self.assertEqual(asyncio.run(self.main.find([])), [])
-        self.assertIn("(-60 dBm) while asking which DLC it has: TimeoutError(), heard 1 message, the last 2101", out.getvalue())
+        self.assertIn("(-60 dBm) while asking which DLC it has: TimeoutError(), heard 2101 x1, 7200 x3", out.getvalue())
+
+    def test_identify_resends_only_the_slot_question(self):
+        """When the Furby misses 0x73, the board asks again after a pause, rather than starting over"""
+        import asyncio
+        from unittest import mock
+
+        self.drop_73 = 1  # the first 0x73 gets no answer, as on the board
+        sent = []
+        real_write = self.main.AiobleFurby._write
+
+        async def write(furby, data):
+            sent.append(bytes(data))
+            await real_write(furby, data)
+
+        with mock.patch.object(self.main, "IDENTIFY_TIMEOUT_S", 0.05), \
+                mock.patch.object(self.main, "SLOT_PAUSE_MS", 1), \
+                mock.patch.object(self.main.AiobleFurby, "_write", write):
+            furbies = asyncio.run(self.main.find(["bb"]))
+        self.assertEqual([f.name for f in furbies], ["pink"])
+        self.assertEqual(sent, [b"\x72", b"\x73\x0d", b"\x73\x0d"])
 
     def test_safe_boot(self):
         """Holding the button at power-up skips the show"""
@@ -1846,7 +1936,7 @@ class TestFirmware(unittest.TestCase):
         # CPython has no ThreadSafeFlag; an Event stands in for it
         with mock.patch.object(self.main.furbyshow.Show, "run", run), \
                 mock.patch.object(asyncio, "ThreadSafeFlag", asyncio.Event, create=True), \
-                mock.patch.object(self.main, "PIR_PIN", None):
+                mock.patch.object(self.main, "PIR_PIN", None), mock.patch.object(self.main, "REMOTE", False):
             asyncio.run(self.main.main(plan))
             self.assertEqual(self.irqs, {self.main.BUTTON_PIN: self.main.machine.Pin.IRQ_FALLING})
             self.main.PIR_PIN = 5
@@ -1918,7 +2008,7 @@ class TestFirmware(unittest.TestCase):
     def test_compiles_for_micropython(self):
         """The board's files compile with MicroPython's own compiler"""
         import subprocess
-        for path in ("furbyshow.py", "firmware/main.py"):
+        for path in ("furbyshow.py", "firmware/main.py", "firmware/remote.py"):
             result = subprocess.run(["micropython", "-c", "compile(open(%r).read(), %r, 'exec')" % (path, path)],
                                     capture_output=True, text=True, check=False)
             self.assertEqual(result.returncode, 0, result.stderr)
@@ -2514,6 +2604,7 @@ class TestDoctor(unittest.TestCase):
                 "main.py": digest("firmware/main.py"),
                 "show.json": digest(plan),
                 "furbyshow.mpy": "mpy",
+                "remote.mpy": "mpy",
                 "furbyshow.py": None,
                 "lib/aioble/core.mpy": "c74327b4" + "0" * 56,
             },
@@ -3043,6 +3134,184 @@ class TestScripts(unittest.TestCase):
             with self.subTest(script=os.path.relpath(path, root)):
                 self.assertEqual(proc.returncode, 0, err)
                 self.assertIn("usage:", out)
+
+class MicroDeque:
+    """MicroPython's collections.deque: only these methods (no clear(), no indexing), so tests catch the rest"""
+
+    def __init__(self, items, maxlen):
+        import collections
+        self._d = collections.deque(items, maxlen)
+        self.maxlen = maxlen
+
+    def append(self, x):
+        self._d.append(x)
+
+    def appendleft(self, x):
+        self._d.appendleft(x)
+
+    def extend(self, xs):
+        self._d.extend(xs)
+
+    def pop(self):
+        return self._d.pop()
+
+    def popleft(self):
+        return self._d.popleft()
+
+    def __len__(self):
+        return len(self._d)
+
+    def __iter__(self):
+        return iter(self._d)
+
+
+class TestRemote(unittest.TestCase):
+    """firmware/remote.py, the phone remote, against stand-ins for aioble's server side"""
+
+    def setUp(self):
+        import asyncio
+        import importlib.util
+        import sys
+        import types
+
+        test = self
+        self.notified = []  # (connection, bytes) the board sent the phone
+        self.full = 0  # how many notifications fail with a full queue
+        self.registered = []
+
+        class Service:
+            def __init__(self, uuid):
+                self.uuid = uuid
+
+        class Characteristic:
+            def __init__(self, service, uuid, **flags):
+                self.uuid = uuid
+
+            def notify(self, connection, data):
+                if test.full:  # the stack's queue is full this time
+                    test.full -= 1
+                    raise OSError(12)
+                test.notified.append(bytes(data))
+
+        class BufferedCharacteristic(Characteristic):
+            def __init__(self, service, uuid, max_len=20, **flags):
+                super().__init__(service, uuid)
+                self.max_len, self.inbox = max_len, asyncio.Queue()
+
+            async def written(self):
+                return None, await self.inbox.get()
+
+        fake = types.SimpleNamespace(
+            config=lambda **kw: None, Service=Service, Characteristic=Characteristic,
+            BufferedCharacteristic=BufferedCharacteristic, register_services=lambda *s: test.registered.extend(s),
+        )
+        self.saved = {name: sys.modules.get(name) for name in ("aioble", "bluetooth")}
+        sys.modules["aioble"] = fake
+        sys.modules["bluetooth"] = types.SimpleNamespace(UUID=str)
+        spec = importlib.util.spec_from_file_location("remote", "./firmware/remote.py")
+        self.remote = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.remote)
+        for name in ("backlog", "errors", "outbox"):  # CPython's deque has clear(); the board's didn't
+            setattr(self.remote, name, MicroDeque((), getattr(self.remote, name).maxlen))
+        self.remote.CHUNK_PAUSE_S = 0
+        self.lines = []
+        self.remote.register(self.lines.append)
+
+    def tearDown(self):
+        import sys
+        for name, module in self.saved.items():
+            if module is None:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = module
+
+    def messages(self):
+        """What the phone would assemble from the notifications: one JSON message per line."""
+        import json
+        return [json.loads(line) for line in b"".join(self.notified).decode().splitlines()]
+
+    def test_session(self):
+        """On connect the phone gets the plan, errors and backlog; then live lines, status, and its commands"""
+        import asyncio
+
+        import furbyshow
+
+        remote = self.remote
+        clip = {"action": [75, 0, 0, 1], "seconds": 1.0}
+        plan = {"gap": 0, "every": [30, 60], "scenes": [["pink.a", "blue.b"]],
+                "furbies": {"pink": {"clips": {"a": clip}}, "blue": {"clips": {"b": clip}}}}
+        show = furbyshow.Show(plan, find=None, log=lambda *_: None)
+        remote.feed("[     1] Starting the show after power-on")
+        remote.feed("[    30] Couldn't connect to aa (-50 dBm) while connecting: TimeoutError()")
+
+        class Connection:
+            mtu = 50
+
+            def __init__(self):
+                self.gone = asyncio.Event()
+
+            def is_connected(self):
+                return not self.gone.is_set()
+
+            async def disconnected(self, timeout_ms=None):
+                await self.gone.wait()
+
+        def status():
+            return {"up": 31, "order": show.order, "on": [], "waiting": "pink", "stuck": False,
+                    "playing": False, "scenes": 0, "free_kb": 100, "reset": "power-on"}
+
+        async def session():
+            connection = Connection()
+            self.full = 2  # a full queue at the start only delays the hello
+            serving = asyncio.create_task(remote.serve(show, connection, status))
+            await asyncio.sleep(0.05)
+            await asyncio.sleep(0.3)  # the two retries
+            for text in (b"clip pink.a", b"clip pink.zzz", b"scene 0", b"scene 9", b"greet", b"dance"):
+                await remote.rx.inbox.put(text)
+                await asyncio.sleep(0.01)
+            remote.feed("[    40] Blue dropped. Pink is still connected; wake blue again.")
+            await asyncio.sleep(0.05)
+            connection.gone.set()
+            await serving
+
+        asyncio.run(session())
+        self.assertTrue(all(len(chunk) <= 47 for chunk in self.notified))  # mtu - 3
+        messages = self.messages()
+        kinds = [m["t"] for m in messages]
+        self.assertEqual(kinds[:4], ["hello", "errors", "log", "log"])
+        self.assertEqual(messages[0]["plan"]["clips"], {"pink": ["a"], "blue": ["b"]})
+        self.assertEqual(messages[1]["lines"], ["[    30] Couldn't connect to aa (-50 dBm) while connecting: TimeoutError()"])
+        acks = {m["cmd"]: m for m in messages if m["t"] == "ack"}
+        self.assertTrue(acks["clip pink.a"]["ok"])
+        self.assertIn("No clip pink.zzz", acks["clip pink.zzz"]["error"])
+        self.assertTrue(acks["scene 0"]["ok"])
+        self.assertFalse(acks["scene 9"]["ok"])
+        self.assertTrue(acks["greet"]["ok"])
+        self.assertIn("Unknown command", acks["dance"]["error"])
+        self.assertEqual(show.requested, ["pink.a", "blue.b"])  # the last request wins
+        self.assertTrue(show.pressed)
+        self.assertIn("status", kinds)
+        live = [m for m in messages if m["t"] == "log" and "Blue dropped" in m["line"]]
+        self.assertEqual(len(live), 1)
+        self.assertTrue(live[0]["error"])
+        self.assertIsNone(remote.link)  # gone with the phone, so feed() stops queueing
+        self.assertTrue(any(line.startswith("Phone: clip pink.zzz (") for line in self.lines))
+
+    def test_off(self):
+        """REMOTE = False never loads the remote, so the show runs as it did before it"""
+        import sys
+
+        main_test = TestFirmware("test_safe_boot")
+        main_test.setUp()
+        try:
+            sys.modules.pop("remote", None)
+            main_test.main.REMOTE = False
+            main_test.main.start_remote(None)
+            self.assertNotIn("remote", sys.modules)
+            self.assertIsNone(main_test.main.remote)
+        finally:
+            main_test.tearDown()
+
 
 class TestWatchBoard(unittest.TestCase):
     """tools/watch_board.py prints and saves the board's lines, and waits out a restart"""

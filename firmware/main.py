@@ -55,20 +55,31 @@ LED_PIN = 21  # and its onboard LED
 #   - On the sensor: jumper on H (repeat trigger), the time pot all the way
 #     down (about 3 s), and allow it a minute to settle after power-up.
 PIR_PIN = 4  # A0/IO4 on the FireBeetle header
+# A phone remote over Bluetooth (firmware/remote.py, and the app in ios/): status,
+# the log, errors, and buttons to play a greeting, a scene or a clip. False
+# loads none of it, and the show runs exactly as it did before the remote.
+REMOTE = True
 CRASH_BLINKS = (1, 1, 1, 1, 0) * 3 + (0,) * 6  # three long blinks: the show couldn't start
 CRASH_MS = 30_000  # how long to blink that before restarting
 BLINK_MS = 100  # the status LED's pattern steps (see led_pattern)
 WATCHDOG_MS = 120_000  # reboot if not fed for this long
 STALL_MS = 300_000  # stop feeding the watchdog if the show makes no progress for this long
-# A just-woken Furby can ignore the DLC question for over 15 s (3 tries, 5 s
-# each), and giving up costs a whole rescan, so ask for up to 40 s.
-IDENTIFY_ATTEMPTS = 8
+# Asking a Furby which DLC it has (see AiobleFurby.identify): tries at each of
+# its two questions, how long to wait for each answer, and the pause before the
+# second, which the board sends far sooner than a laptop's Bluetooth stack does.
+IDENTIFY_ATTEMPTS = 3
+IDENTIFY_TIMEOUT_S = 3
+SLOT_PAUSE_MS = 250
 # Everything the board prints also goes to log.txt on the board, so a run on
 # battery can be read afterwards with firmware/getlog.sh.
 # Past LOG_MAX it moves to log.txt.old. Only on the board, so tests write nothing.
 LOG_PATH = "log.txt" if sys.implementation.name == "micropython" else None
 LOG_MAX = 100_000
 STATUS_S = 300  # how often to log a status line (uptime, Furbies, scenes, memory)
+
+
+remote = None  # firmware/remote.py, once REMOTE has loaded it
+boot_reason = None  # reset_reason() at power-up, for the remote's status
 
 
 def uptime_s():
@@ -79,6 +90,8 @@ def say(line):
     """Print a line with the seconds since boot, and append it to LOG_PATH."""
     line = "[%6d] %s" % (uptime_s(), line)
     print(line)
+    if remote:
+        remote.feed(line)
     if not LOG_PATH:
         return
     try:
@@ -145,7 +158,7 @@ class AiobleFurby(furbyshow.Furby):
         self.connection = None
         self.step = "connecting"  # how far connect() got, for its error message
         self.rssi = None  # signal strength in the scan, dBm
-        self.heard, self.last_heard = 0, None  # notifications since connecting, for errors
+        self.heard = {}  # notifications since connecting, counted by their first two bytes, for errors
 
     def connected(self):
         return self.connection is not None and self.connection.is_connected()
@@ -159,7 +172,7 @@ class AiobleFurby(furbyshow.Furby):
 
     async def connect(self):
         self.step = "connecting"
-        self.heard, self.last_heard = 0, None
+        self.heard = {}
         self.connection = await self.device.connect(timeout_ms=20000)
         try:
             self.step = "finding its Bluetooth service"
@@ -174,7 +187,7 @@ class AiobleFurby(furbyshow.Furby):
             asyncio.create_task(self.listen())
             self.step = "asking which DLC it has"
             asked = furbyshow.ticks_ms()
-            await self.identify(attempts=IDENTIFY_ATTEMPTS)
+            await self.identify()
             waited = furbyshow.ticks_diff(furbyshow.ticks_ms(), asked)
             if waited > 5000:  # it missed the first try: say so, to learn how long Furbies take
                 say("%s took %d s to say which DLC it has" % (self.name, waited // 1000))
@@ -182,11 +195,42 @@ class AiobleFurby(furbyshow.Furby):
             await self.disconnect()
             raise
 
+    async def identify(self, attempts=IDENTIFY_ATTEMPTS):
+        """furbyshow.Furby.identify(), paced for the board.
+
+        Asked from the board, a just-connected Furby answered 0x72 (which slot is
+        active) every time, but often not the 0x73 (that slot's name and checksum)
+        sent straight after it, however often the pair was retried. A laptop never
+        saw that. So pause before 0x73, and resend only 0x73 when it goes unanswered.
+        """
+        for attempt in range(attempts):
+            try:
+                info = await self.command(furbyshow.DLC_INFO, expect=furbyshow.DLC_INFO, timeout=IDENTIFY_TIMEOUT_S)
+                break
+            except asyncio.TimeoutError:
+                if attempt == attempts - 1:
+                    raise
+        slot = furbyshow.active_slot(info)
+        if slot is None:
+            raise ValueError("%s has no active DLC; flash pink.dlc or blue.dlc to it first" % self.address)
+        query = bytes([0x73, slot])
+        for attempt in range(attempts):
+            await asyncio.sleep(SLOT_PAUSE_MS / 1000)
+            try:
+                info = await self.command(query, expect=query, timeout=IDENTIFY_TIMEOUT_S)
+                break
+            except asyncio.TimeoutError:
+                if attempt == attempts - 1:
+                    raise
+        self.name, self.checksum = furbyshow.slot_name(info).lower(), furbyshow.slot_checksum(info)
+        return self.name
+
     async def listen(self):
         while self.connected():
             try:
                 data = await self.rx.notified(timeout_ms=5000)
-                self.heard, self.last_heard = self.heard + 1, data
+                kind = binascii.hexlify(bytes(data[:2])).decode()
+                self.heard[kind] = self.heard.get(kind, 0) + 1
                 self.on_response(data)
             except asyncio.TimeoutError:
                 pass
@@ -212,12 +256,11 @@ async def find(known, scan_ms=5000):
             await furby.connect()
         except Exception as e:
             # repr: aioble's errors often have no message. Signal under about -85 dBm is weak.
-            # Nothing heard means the connection never worked; heard but no answer, a busy Furby.
+            # What the Furby sent, by kind: 7200 is its answer to 0x72, 730d to 0x73 for slot 13.
             heard = ""
             if furby.step == "asking which DLC it has":
-                last = binascii.hexlify(bytes(furby.last_heard)).decode() if furby.last_heard else None
-                heard = ", heard %d message%s" % (furby.heard, "" if furby.heard == 1 else "s")
-                heard += ", the last %s" % last if last else ""
+                kinds = ", ".join("%s x%d" % kc for kc in sorted(furby.heard.items())) or "nothing"
+                heard = ", heard %s" % kinds
             say("Couldn't connect to %s (%s dBm) while %s: %r%s" % (furby.address, furby.rssi, furby.step, e, heard))
             continue
         furbies.append(furby)
@@ -280,25 +323,57 @@ def trace(error):
         say(exception_text(error))
 
 
+def status_info(show):
+    """The show's state, for the status line and the phone remote."""
+    return {
+        "up": uptime_s(),
+        "order": show.order,
+        "on": [n for n in show.order if n in show.present()],
+        "waiting": show.waiting_for(),
+        "stuck": show.stuck(),
+        "playing": show.playing,
+        "scenes": scenes_played,
+        "free_kb": gc.mem_free() // 1024 if hasattr(gc, "mem_free") else None,
+        "reset": boot_reason,
+    }
+
+
 async def status(show, every_s=STATUS_S):
     """Log a line every so often, so a quiet log reads as alive rather than hung,
     and a slow leak shows up as falling free memory before it crashes the show."""
     while True:
         await asyncio.sleep(every_s)
         gc.collect()
-        free = "%d KB free" % (gc.mem_free() // 1024) if hasattr(gc, "mem_free") else "memory unknown"
-        here = ", ".join(n for n in show.order if n in show.present()) or "no Furbies"
-        say("Status: up %d min, %s connected, %d scenes, %s" % (uptime_s() // 60, here, scenes_played, free))
+        info = status_info(show)
+        free = "%d KB free" % info["free_kb"] if info["free_kb"] is not None else "memory unknown"
+        here = ", ".join(info["on"]) or "no Furbies"
+        say("Status: up %d min, %s connected, %d scenes, %s" % (info["up"] // 60, here, info["scenes"], free))
+
+
+def start_remote(show):
+    """Load the phone remote if REMOTE is on. Nothing that goes wrong here may stop the show."""
+    global remote
+    if not REMOTE:
+        return
+    try:
+        import remote as module
+
+        module.register(say)  # before any Furby connects: services can't change after
+        asyncio.create_task(module.run(show, lambda: status_info(show)))
+        remote = module
+        say("Phone remote on: connect to %r" % module.NAME)
+    except Exception as e:
+        say("Phone remote off: %r" % e)
 
 
 def reset_reason():
-    """Why the board last started. On the ESP32 a hard reset covers a crash, a power dip and the reset button."""
+    """Why the board last started. On the ESP32, machine.reset() (deploy.sh, getlog.sh) also reads as a hard reset."""
     names = (
         ("PWRON_RESET", "power-on"),
-        ("HARD_RESET", "a hard reset (a crash, a power dip or the reset button)"),
+        ("HARD_RESET", "a hard reset (deploy.sh or getlog.sh, the reset button, a crash or a power dip)"),
         ("WDT_RESET", "the watchdog (the show hung)"),
         ("DEEPSLEEP_RESET", "waking from deep sleep"),
-        ("SOFT_RESET", "a soft reset (e.g. deploy.sh)"),
+        ("SOFT_RESET", "a soft reset (Ctrl-D at the REPL)"),
     )
     cause = machine.reset_cause()
     for attr, name in names:
@@ -315,6 +390,7 @@ async def main(plan_path="show.json"):
     order = furbyshow.plan_order(text, plan["furbies"])
     del text
     show = furbyshow.Show(plan, find, log=log, wake=asyncio.ThreadSafeFlag(), order=order, trace=trace)
+    start_remote(show)
     button = machine.Pin(BUTTON_PIN, machine.Pin.IN, machine.Pin.PULL_UP)
     # ThreadSafeFlag is safe to set from an interrupt and wakes the show at once.
     button.irq(lambda _: show.trigger(), machine.Pin.IRQ_FALLING)
@@ -336,7 +412,8 @@ if __name__ == "__main__":
     if safe_boot():
         say("Button held: safe boot, show not started")
     else:
-        say("Starting the show after %s" % reset_reason())
+        boot_reason = reset_reason()
+        say("Starting the show after %s" % boot_reason)
         try:
             asyncio.run(main())
         except Exception as e:

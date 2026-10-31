@@ -7,8 +7,9 @@
 #   firmware/deploy.sh            # first board found
 #   PORT=/dev/cu.usbmodem1101 firmware/deploy.sh
 #
-# Installs aioble (pinned), compiles the show engine to .mpy (faster to load,
-# less RAM), copies it with main.py and show.json, and restarts the board.
+# Installs aioble (pinned), compiles the show engine and the phone remote to
+# .mpy (faster to load, less RAM), copies them with main.py and show.json, and
+# restarts the board.
 # Needs uv (https://docs.astral.sh/uv/), which runs mpremote and mpy-cross
 # without installing them. If the show is already running on the board, the
 # watchdog reboots it about two minutes after mpremote interrupts it; this
@@ -30,10 +31,13 @@ fi
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 uvx --from mpy-cross mpy-cross -o "$work/furbyshow.mpy" furbyshow.py
+uvx --from mpy-cross mpy-cross -o "$work/remote.mpy" firmware/remote.py
 
 mpremote=(uvx mpremote connect "${PORT:-auto}")
 "${mpremote[@]}" mip install "${AIOBLE[@]}"
-# MicroPython imports furbyshow.py ahead of furbyshow.mpy, so an old hand copy would hide this one
-"${mpremote[@]}" rm :furbyshow.py 2>/dev/null || true
-"${mpremote[@]}" cp "$work/furbyshow.mpy" firmware/main.py "$SHOW" : + reset
-echo "Deployed. The show starts in a few seconds; watch it with: uvx mpremote connect ${PORT:-auto} repl"
+# MicroPython imports a .py ahead of its .mpy, so an old hand copy would hide the new one
+for stale in furbyshow.py remote.py; do
+  "${mpremote[@]}" rm ":$stale" >/dev/null 2>&1 || true
+done
+"${mpremote[@]}" cp "$work/furbyshow.mpy" "$work/remote.mpy" firmware/main.py "$SHOW" : + reset
+echo "Deployed. The show starts in a few seconds; watch it with: uv run tools/watch_board.py${PORT:+ --port $PORT}"

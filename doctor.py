@@ -76,7 +76,8 @@ try:
 except OSError:
     lib = []
 st = os.statvfs('/')
-print(json.dumps({'files': {p: h(p) for p in ['main.py', 'furbyshow.mpy', 'furbyshow.py', 'show.json'] + lib},
+names = ['main.py', 'furbyshow.mpy', 'furbyshow.py', 'remote.mpy', 'remote.py', 'show.json'] + lib
+print(json.dumps({'files': {p: h(p) for p in names},
     'log': size('log.txt'), 'free': st[0] * st[3], 'mpy': sys.implementation._mpy & 0xff}))
 """
 LOW_FLASH = 200_000  # bytes free on the board below which its log may stop being written
@@ -327,9 +328,9 @@ def sha256_file(path):
 
 
 def compile_mpy(source):
-    """furbyshow.mpy as deploy.sh builds it, or None if mpy-cross can't run."""
+    """The .mpy deploy.sh builds from source, or None if mpy-cross can't run."""
     with tempfile.TemporaryDirectory() as tmp:
-        out = os.path.join(tmp, "furbyshow.mpy")
+        out = os.path.join(tmp, "out.mpy")
         try:
             subprocess.run(
                 ["uvx", "--from", "mpy-cross", "mpy-cross", "-o", out, source],
@@ -389,19 +390,21 @@ def check_board(r, plan_path, port="auto", probe=probe_board, compile=compile_mp
         "main.py": sha256_file("firmware/main.py"),
         "show.json": sha256_file(plan_path),
         "furbyshow.mpy": compile("furbyshow.py"),
+        "remote.mpy": compile("firmware/remote.py"),
     }
     for name, want in expected.items():
         have = files.get(name)
         if have is None:
             r.fail("The board has no %s." % name, deploy)
         elif want is None:
-            r.warn("Couldn't build furbyshow.mpy here to compare with the board's.", "Check that uv can run mpy-cross")
+            r.warn("Couldn't build %s here to compare with the board's." % name, "Check that uv can run mpy-cross")
         elif have != want:
             r.fail("The board's %s isn't this checkout's." % name, deploy)
         else:
             r.ok("The board's %s is current" % name)
-    if files.get("furbyshow.py"):
-        r.fail("The board has an old furbyshow.py, which MicroPython loads instead of furbyshow.mpy.", deploy)
+    for stale in ("furbyshow", "remote"):
+        if files.get(stale + ".py"):
+            r.fail("The board has an old %s.py, which MicroPython loads instead of %s.mpy." % (stale, stale), deploy)
     lib = {path[len("lib/") :]: digest for path, digest in files.items() if path.startswith("lib/")}
     known = manifest(deploy, board.get("mpy", 6))
     if not lib:

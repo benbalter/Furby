@@ -1,0 +1,6 @@
+// Copy to Local.xcconfig (not committed) and put your team ID here.
+// Find it after adding your Apple ID in Xcode → Settings → Accounts: it's the
+// 10-character ID of your "(Personal Team)", also shown by
+//   security find-identity -v -p codesigning
+// as the OU in "Apple Development: you@example.com (ABCDE12345)".
+DEVELOPMENT_TEAM = ABCDE12345

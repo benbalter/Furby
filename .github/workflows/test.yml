@@ -38,7 +38,8 @@ jobs:
 
   # The show engine and firmware run on MicroPython on the board. Homebrew has
   # MicroPython's Unix port, so the two tests that need it run for real here
-  # instead of skipping; the test job already runs everything else.
+  # instead of skipping; the test job already runs everything else. On macOS
+  # because Homebrew has MicroPython, which also makes it the place for Swift.
   micropython:
     runs-on: macos-latest
     timeout-minutes: 10
@@ -58,6 +59,10 @@ jobs:
       run: |
         uvx mpy-cross -o /tmp/furbyshow.mpy furbyshow.py
         uvx mpy-cross -o /tmp/main.mpy firmware/main.py
+        uvx mpy-cross -o /tmp/remote.mpy firmware/remote.py
+    # The iPhone remote's protocol package; the app itself needs an iPhone to be useful
+    - name: Test the iPhone remote's protocol
+      run: swift test --package-path ios/FurbyRemoteKit
 
   # The real show.toml with placeholder tones for its (gitignored) clips, run
   # on virtual Furbies. TestRealShow already fails the build on a silent or

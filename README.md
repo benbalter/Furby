@@ -72,7 +72,7 @@ A fresh copy of the repository has almost none of the show's audio: the clips li
 
   This speaks every line that doesn't have a file yet, in a different voice for each Furby, and saves it where `show.toml` says. It uses a Mac's built-in voices, or [espeak-ng](https://github.com/espeak-ng/espeak-ng) on Windows and Linux. `uv run voices.py --list` shows each line and whether it has audio yet. To try other voices, run `say -v '?'` to see your Mac's, then `uv run voices.py --force --voice Whisper` (for every line), or set `voice = "Whisper"` under `[furbies.pink]` in `show.toml` (for one Furby). It never replaces a file that's already there unless you add `--force`, so you can record your own lines later, one at a time, and run it again for the rest.
 - **Record them yourself.** Use any recorder (QuickTime Player, your phone's voice memos) and save each line under the name `show.toml` gives it. Any format ffmpeg reads works: if you'd rather keep `pink_boo.m4a`, change the path in `show.toml` to match. A high, squeaky voice sounds most like a Furby. Trim the silence at each end and keep each line to a few seconds, because each DLC has room for only about 350 KB and audio costs about 2 KB a second.
-- **Clone a Furby's voice.** The original show's lines were made with an AI voice-cloning tool, using clips from the Furby's stock DLC as the sample voice. Those clips come from Hasbro's audio, so the cloned lines can't be shared here. `uv run audioutils/extract_voice.py` unpacks the stock clips to `build/voice/` if you want to try it yourself.
+- **Clone a Furby's voice.** The original show's lines mimic the Furby's own voice, with this recipe ([`tools/voice_mimic/`](tools/voice_mimic/README.md) has the scripts): build about 10 seconds of sample audio from four speech-only stock clips (`uv run audioutils/extract_voice.py` unpacks them to `build/voice/`; trim the silence and join them). Run [Chatterbox](https://github.com/resemble-ai/chatterbox), an open-source text-to-speech model that mimics a sample voice, on each line. Make several takes per line, keep the ones [Whisper](https://github.com/openai/whisper) transcribes correctly and that sound most like the Furby, then raise the pitch a semitone. The samples are Hasbro's recordings, so what this makes can't be shared: keep it on your computer, and don't publish it.
 
 **Sound effects (optional).** The cackles, scream, moan and creaky door come from [Freesound](https://freesound.org), public-domain (CC0) sounds only. Get a free API key at <https://freesound.org/apiv2/apply>, then:
 
@@ -563,6 +563,8 @@ Files marked `SPDX-License-Identifier: MIT` (the Halloween show, the firmware, a
 
 Generated audio and DLCs live in `build/`, which git ignores. Don't commit or publish voice clips cloned from the Furby, or DLCs built from the stock one.
 
+Furby is a trademark of Hasbro. This project isn't affiliated with or endorsed by Hasbro.
+
 ## Contributing
 
 We really hope you enjoy tinkering with the scripts. If you'd like to contribute, here are a few things that still need work:
@@ -583,5 +585,7 @@ Enjoy - we're looking forward to seeing what you make with it!
 - [Igor Afanasyev's Furby audio implementation](https://github.com/iafan/Hacksby)
 - [John-K's open-source A1800 codec](https://github.com/John-K/a1800_codec)
 - [PyFluff, a Python port of Bluefluff](https://github.com/martinwoodward/pyfluff)
+- [Rob Miles: controlling a Furby Connect from an ESP32](https://www.robmiles.com/journal/2020/5/24/controlling-a-furby-connect-using-an-esp32) (2020)
+- [furby-mcp](https://github.com/benbalter/furby-mcp), an MCP server that lets Claude and other AI tools find Furbies, cue their actions, light their antennas, and load DLCs
 - [Extracted Furby Connect eye animations](https://github.com/lib-fluff-so/furby-connect-eyes-extract)
 - [aioble, MicroPython's Bluetooth library](https://github.com/micropython/micropython-lib/tree/master/micropython/bluetooth/aioble)

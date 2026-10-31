@@ -196,7 +196,7 @@ With [MicroPython](https://micropython.org)'s Unix port installed (`brew install
 
 Everything here builds on the Furby Connect's own DLC, the file the Furby Connect World app downloaded for it: `tu003410.dlc` for English-speaking Furbies. A Furby needs its action table, sequences and motor routines to play anything, so the show, the eyes and the probes all change a copy of it rather than write one from nothing. It's Hasbro's, so this repository doesn't include it.
 
-- **Where to find it.** Hasbro's servers stopped serving it (checked October 2026). Use a copy you already have: from an old phone or tablet's app data, a backup, or a Furby-hacking project you trust.
+- **Where to find it.** Hasbro's servers stopped serving it (checked October 2026). Use a copy you already have, from an old phone or tablet's app data or a backup. [Furby-ReConnect/Furby-Connect-World-CDN](https://github.com/Furby-ReConnect/Furby-Connect-World-CDN), a community archive of the app's downloads, also has it.
 - **Where to put it.** At `dlc/stock.dlc` (git ignores it), or anywhere you like with `FURBY_STOCK_DLC` pointing at it: `FURBY_STOCK_DLC=~/Downloads/tu003410.dlc uv run halloween.py`. Every script finds it through [`stock_dlc.py`](stock_dlc.py), and stops with these steps if it's missing.
 - **Tests and CI** don't need it. [`tools/synthetic_dlc.py`](tools/synthetic_dlc.py) builds a stand-in with the same layout (the action table, scene slots, eye playlists) and none of Hasbro's content: tones for audio and a drawn eye. It's for testing only; don't flash it.
 

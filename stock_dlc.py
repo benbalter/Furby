@@ -23,8 +23,9 @@ which is Hasbro's, so this repo doesn't include it. To get one:
 
 - The Furby Connect World app downloaded it as tu003410.dlc (English Furbies).
   Hasbro's servers stopped serving it (checked October 2026), so use a copy
-  you already have, from an old phone or tablet's app data, a backup, or a
-  Furby-hacking project you trust.
+  you already have, from an old phone or tablet's app data or a backup. A
+  community archive of the app's downloads also has it:
+  https://github.com/Furby-ReConnect/Furby-Connect-World-CDN
 - Put it at dlc/stock.dlc, or point {env} at it:
       FURBY_STOCK_DLC=~/Downloads/tu003410.dlc uv run halloween.py
 

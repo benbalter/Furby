@@ -9,7 +9,7 @@ voice-cloning reference. Clips are decoded with the open-source A1800 codec
 (https://github.com/John-K/a1800_codec), so this runs on any OS.
 
 USAGE:
-    python audioutils/extract_voice.py                 # stock DLC → build/voice/
+    python audioutils/extract_voice.py                 # your stock DLC → build/voice/
     python audioutils/extract_voice.py my.dlc -o out/
 
 Writes track_NNN.wav per clip, plus index.csv listing the input-75 ("App
@@ -27,14 +27,15 @@ import wave
 import a1800_codec
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import stock_dlc  # noqa: E402
 from furby import dlc  # noqa: E402
 from spooky_eyes import _actions, _tracks  # noqa: E402
 
 RATE = 16000
 
 
-def extract(dlc_in="./dlc/dlc2/tu003410.dlc", out_dir="./build/voice"):
-    D = dlc(dlc_in)
+def extract(dlc_in=None, out_dir="./build/voice"):
+    D = dlc(stock_dlc.require(dlc_in))
     tracks = D.dlc_sections["AMF"].tracks
     plays = {}
     for code in _actions(D, [75]):
@@ -61,7 +62,7 @@ def extract(dlc_in="./dlc/dlc2/tu003410.dlc", out_dir="./build/voice"):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("dlc", nargs="?", default="./dlc/dlc2/tu003410.dlc")
+    parser.add_argument("dlc", nargs="?", help="the DLC to decode (default: your stock DLC; see stock_dlc.py)")
     parser.add_argument("-o", "--out-dir", default="./build/voice")
     args = parser.parse_args()
     extract(args.dlc, args.out_dir)

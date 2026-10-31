@@ -129,6 +129,20 @@ def check_tools(r):
         )
 
 
+def check_stock_dlc(r):
+    """The stock DLC every build starts from, which each person brings (see stock_dlc.py)."""
+    import stock_dlc
+
+    path = stock_dlc.path()
+    if os.path.exists(path):
+        r.ok("Stock DLC: %s" % path)
+    else:
+        r.fail(
+            "No stock DLC at %s. Every build starts from the Furby's own DLC, which isn't in this repository." % path,
+            "Put your copy of tu003410.dlc at dlc/stock.dlc, or set FURBY_STOCK_DLC; see README.md, Your stock DLC",
+        )
+
+
 def check_packages(r, find_spec=importlib.util.find_spec):
     """True if the packages are there, so the checks that import them can run."""
     missing = [pip for mod, pip in PACKAGES.items() if find_spec(mod) is None]
@@ -465,6 +479,7 @@ def main(argv=None, out=print):
     args = parser.parse_args(argv)
     r = Report(out)
     check_tools(r)
+    check_stock_dlc(r)
     if check_packages(r):
         if not args.no_bluetooth:
             check_bluetooth(r)

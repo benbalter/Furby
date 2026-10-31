@@ -596,9 +596,10 @@ def dlc_anatomy(ctx):
     """One of the show's actions followed through the stock DLC, in plain words, with the real numbers, as an SVG."""
     import emulate
     import halloween
+    import stock_dlc
     from furby import dlc
 
-    D = dlc("dlc/dlc2/tu003410.dlc")
+    D = dlc(stock_dlc.require())  # your stock DLC: the diagram reads its real numbers, and ships none of it
     sec = D.dlc_sections
     code = halloween.quick_slots(D)[0]  # the first slot the show fills: a built-in movement, so a short sequence
     seq_no = sec["XLS"].action_tree[code[0]][code[1]][code[2]][code[3]]["seq"]

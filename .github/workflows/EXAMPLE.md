@@ -128,7 +128,7 @@ Once you have your a18 file, you can use it in your Furby DLC files:
 from furby import dlc
 
 # Load a DLC
-D = dlc("./dlc/dlc2/tu003410.dlc")
+D = dlc("./dlc/stock.dlc")
 
 # Replace audio for action code 75-0-0-0
 D.replace_audio((75,0,0,0), ["path/to/your/file.a18"])

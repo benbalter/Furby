@@ -24,6 +24,7 @@
 
 
 from furby import dlc
+import stock_dlc
 
 ########################################################################
 #
@@ -35,10 +36,10 @@ from furby import dlc
 ########################################################################
 
 
-def make_hacked_inverting(dlc_in="./dlc/dlc2/tu003410.dlc", left_gif="./images/demo_eyes/left.gif", right_gif="./images/demo_eyes/right.gif", dlc_out="./newdlc.dlc"):
+def make_hacked_inverting(dlc_in=None, left_gif="./images/demo_eyes/left.gif", right_gif="./images/demo_eyes/right.gif", dlc_out="./newdlc.dlc"):
 
 	#Open, shrink audio.
-	D = dlc(dlc_in)
+	D = dlc(stock_dlc.require(dlc_in))
 	D.dlc_sections["AMF"].minify_audio()
 
 	#Pop in exterminate audio (if you'd like.)

@@ -1,0 +1,8 @@
+{
+ "method": "praat",
+ "st": 1,
+ "formant": 1.0,
+ "band": true,
+ "mean_sim": 0.8587490320205688,
+ "passes": 9
+}

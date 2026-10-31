@@ -51,6 +51,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from xml.sax.saxutils import escape
 
 ROOT = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 sys.path.insert(0, ROOT)
@@ -67,9 +68,7 @@ MAX_VIDEO_BYTES = 1_500_000
 MAX_FLASHES_PER_S = 3  # the photosensitivity limit the EyeLights tests hold to, too
 # WCAG 2's general flash: a swing of 10% in relative luminance (linear light, not gamma-encoded luma)
 FLASH_SWING = 0.10
-PINK, BLUE = (194, 51, 122), (47, 111, 208)  # passes the dataviz palette checks on the light card
-INK, MUTED, CARD, RULE = (29, 29, 31), (92, 92, 102), (251, 250, 247), (214, 211, 204)
-GREY = (120, 120, 128)  # legend swatches that stand for both Furbies
+PINK, BLUE = (194, 51, 122), (47, 111, 208)  # the eye videos' labels; THEME has the diagrams' colours
 NIGHT = (20, 20, 22)
 # A scene with an effect and two stand-in lines, for the pacing chart and the sample audio
 SAMPLE_SCENE = ["blue.door", "pink.scream", "blue.gotcha"]
@@ -217,70 +216,121 @@ def encode_video(frames, fps, base):
     return paths
 
 
-def rounded_card(size, scale=2):
-    """A light card with rounded, see-through corners, drawn at scale× for smooth edges, and its draw handle."""
-    from PIL import Image, ImageDraw
-
-    im = Image.new("RGBA", (size[0] * scale, size[1] * scale), (0, 0, 0, 0))
-    d = ImageDraw.Draw(im)
-    d.rounded_rectangle((0, 0, im.width - 1, im.height - 1), radius=28 * scale, fill=CARD + (255,))
-    return im, d
-
-
-def finish(im, size):
-    from PIL import Image
-
-    return im.resize(size, Image.LANCZOS)
-
-
-def box(d, s, xy, title, lines=(), outline=INK, dashed=False, title_color=None):
-    """A labelled box, in 1× coordinates on a canvas drawn at scale s."""
-    x0, y0, x1, y1 = (v * s for v in xy)
-    if dashed:
-        d.rounded_rectangle((x0, y0, x1, y1), radius=14 * s, fill=CARD)
-        _dashed_rect(d, (x0, y0, x1, y1), outline, 2 * s, 10 * s)
-    else:
-        d.rounded_rectangle((x0, y0, x1, y1), radius=14 * s, fill=(255, 255, 255), outline=outline, width=3 * s)
-    d.text((x0 + 18 * s, y0 + 14 * s), title, font=font(26 * s, bold=True), fill=title_color or INK)
-    for i, line in enumerate(lines):
-        d.text((x0 + 18 * s, y0 + (52 + 28 * i) * s), line, font=font(20 * s), fill=MUTED)
+# Each colour the diagrams use, light then dark. Pink and blue pass the dataviz palette checks on both cards.
+THEME = {
+    "card": ("#f8f7f4", "#1c1d21"),
+    "panel": ("#ffffff", "#25262b"),
+    "chip": ("#f0ede6", "#2c2d33"),
+    "ink": ("#1d1d1f", "#ececf0"),
+    "muted": ("#5c5c66", "#a5a5af"),
+    "rule": ("#d6d3cc", "#3d3e45"),
+    "grid": ("#e8e5de", "#2c2d33"),
+    "pink": ("#c2337a", "#e0609e"),
+    "blue": ("#2f6fd0", "#5b93e6"),
+    "pink-tint": ("#efc2d8", "#5a2b44"),
+    "blue-tint": ("#c4d6f3", "#26395a"),
+    "grey": ("#78787f", "#9a9aa3"),
+    "grey-tint": ("#d6d6da", "#45464d"),
+    "amber": ("#b08014", "#d9a640"),
+    "eyes": ("#e1d6ec", "#3d3350"),
+    "audio": ("#d6e6de", "#2b4237"),
+    "links": ("#ece9e2", "#34353b"),
+}
+FONT_STACK = "ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif"
 
 
-def _dashed_line(d, a, b, fill, width, dash):
-    import math
-
-    length = math.dist(a, b)
-    steps = max(1, int(length // dash))
-    for i in range(0, steps, 2):
-        t0, t1 = i / steps, min(1, (i + 1) / steps)
-        d.line([(a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t) for t in (t0, t1)], fill=fill, width=width)
+def text_width(text, size, bold=False):
+    """About how wide text is at this size, measured in SF, which most viewers' system-ui matches."""
+    return font(size, bold=bold).getlength(text)
 
 
-def _dashed_rect(d, xy, fill, width, dash):
+class Svg:
+    """A vector diagram on a rounded card that follows the viewer's light or dark mode, built up shape by shape.
+
+    Colours are THEME names, drawn through CSS variables that a prefers-color-scheme query swaps, so the SVG
+    works as a plain <img> with no external fonts or CSS.
+    """
+
+    def __init__(self, size, title, desc):
+        self.size, self.title, self.desc, self.parts = size, title, desc, []
+        self.rect(0, 0, size[0], size[1], fill="card", r=28)
+
+    @staticmethod
+    def _style(fill=None, stroke=None, width=None, dash=None):
+        style = ["fill:%s" % ("var(--%s)" % fill if fill else "none")]
+        if stroke:
+            style.append("stroke:var(--%s);stroke-width:%g" % (stroke, width or 1))
+            if dash:
+                style.append("stroke-dasharray:%g %g" % (dash, dash))
+        return ";".join(style)
+
+    def rect(self, x0, y0, x1, y1, fill=None, stroke=None, width=None, r=0, dash=None):
+        self.parts.append('<rect x="%g" y="%g" width="%g" height="%g" rx="%g" style="%s"/>'
+                          % (x0, y0, x1 - x0, y1 - y0, r, self._style(fill, stroke, width, dash)))  # fmt: skip
+
+    def line(self, a, b, stroke="ink", width=3, dash=None):
+        self.parts.append('<line x1="%g" y1="%g" x2="%g" y2="%g" style="%s"/>'
+                          % (*a, *b, self._style(None, stroke, width, dash)))  # fmt: skip
+
+    def polygon(self, points, fill="ink"):
+        coords = " ".join("%g,%g" % p for p in points)
+        self.parts.append('<polygon points="%s" style="%s"/>' % (coords, self._style(fill)))
+
+    def text(self, x, y, s, size, fill="muted", bold=False, anchor="start"):
+        """s with the top of its letters at y, as Pillow places text, so layouts carry over."""
+        baseline = y + font(size, bold=bold).getmetrics()[0] * 0.8
+        self.parts.append('<text x="%g" y="%g" font-size="%g"%s%s style="fill:var(--%s)">%s</text>' % (
+            x, baseline, size, ' font-weight="700"' if bold else "",
+            ' text-anchor="%s"' % anchor if anchor != "start" else "", fill, escape(s)))  # fmt: skip
+
+    def render(self):
+        light = ";".join("--%s:%s" % (k, v[0]) for k, v in THEME.items())
+        dark = ";".join("--%s:%s" % (k, v[1]) for k, v in THEME.items())
+        w, h = self.size
+        return "\n".join([
+            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 %d %d" width="%d" height="%d" role="img" '
+            'aria-labelledby="title desc">' % (w, h, w, h),
+            "<title id=\"title\">%s</title>" % escape(self.title),
+            "<desc id=\"desc\">%s</desc>" % escape(self.desc),
+            "<style>svg{%s}@media (prefers-color-scheme: dark){svg{%s}}text{font-family:%s}</style>"
+            % (light, dark, FONT_STACK),
+            *self.parts,
+            "</svg>",
+            "",
+        ])  # fmt: skip
+
+    def save(self, path):
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(self.render())
+        return path
+
+
+def box(svg, xy, title, lines=(), outline="ink", dashed=False, title_color="ink"):
+    """A labelled box."""
     x0, y0, x1, y1 = xy
-    for a, b in (((x0, y0), (x1, y0)), ((x1, y0), (x1, y1)), ((x1, y1), (x0, y1)), ((x0, y1), (x0, y0))):
-        _dashed_line(d, a, b, fill, width, dash)
+    if dashed:
+        svg.rect(x0, y0, x1, y1, fill="card", stroke=outline, width=2, r=14, dash=10)
+    else:
+        svg.rect(x0, y0, x1, y1, fill="panel", stroke=outline, width=3, r=14)
+    svg.text(x0 + 18, y0 + 14, title, 26, fill=title_color, bold=True)
+    for i, line in enumerate(lines):
+        svg.text(x0 + 18, y0 + 52 + 28 * i, line, 20)
 
 
-def arrow(d, s, a, b, label=None, color=INK, both=False, label_at=0.5, label_dy=-30):
-    """An arrow from a to b (1× coordinates), with an optional label beside its middle."""
+def arrow(svg, a, b, label=None, color="ink", both=False, label_at=0.5, label_dy=-30):
+    """An arrow from a to b, with an optional label on a card-coloured patch beside its middle."""
     import math
 
-    a, b = (a[0] * s, a[1] * s), (b[0] * s, b[1] * s)
-    d.line([a, b], fill=color, width=3 * s)
+    svg.line(a, b, stroke=color, width=3)
     for tip, tail in ((b, a), (a, b)) if both else ((b, a),):
         ang = math.atan2(tip[1] - tail[1], tip[0] - tail[0])
-        head = [tip] + [
-            (tip[0] - 16 * s * math.cos(ang + k), tip[1] - 16 * s * math.sin(ang + k)) for k in (0.45, -0.45)
-        ]
-        d.polygon(head, fill=color)
+        svg.polygon([tip] + [(tip[0] - 16 * math.cos(ang + k), tip[1] - 16 * math.sin(ang + k)) for k in (0.45, -0.45)],
+                    fill=color)  # fmt: skip
     if label:
         mx, my = a[0] + (b[0] - a[0]) * label_at, a[1] + (b[1] - a[1]) * label_at
-        f = font(19 * s)
-        w = d.textlength(label, font=f)
-        d.rectangle((mx - w / 2 - 6 * s, my + label_dy * s - 2 * s, mx + w / 2 + 6 * s, my + (label_dy + 24) * s),
-                    fill=CARD)  # fmt: skip
-        d.text((mx - w / 2, my + label_dy * s), label, font=f, fill=MUTED)
+        w = text_width(label, 19)
+        svg.rect(mx - w / 2 - 6, my + label_dy - 2, mx + w / 2 + 6, my + label_dy + 24, fill="card")
+        svg.text(mx - w / 2, my + label_dy, label, 19)
 
 
 def gif_frames(path, frame_ms):
@@ -479,72 +529,70 @@ def eyes_pink_vs_blue(ctx):
 
 
 def architecture(ctx):
-    """The show's parts and how they talk, drawn with Pillow on a light card."""
-    s, size = 2, (1600, 1000)
-    im, d = rounded_card(size, s)
-    d.text((60 * s, 44 * s), "How the porch show fits together", font=font(40 * s, bold=True), fill=INK)
-    d.text((60 * s, 98 * s), "Bluetooth Low Energy (BLE) links, the build that feeds them, and the one prop that "
-           "runs on its own.", font=font(22 * s), fill=MUTED)  # fmt: skip
+    """The show's parts and how they talk, as an SVG that follows light and dark mode."""
+    size = (1600, 1000)
+    alt = (
+        "Diagram. halloween/show.toml is built by halloween.py into pink.dlc, blue.dlc and show.json, which "
+        "flash.py uploads to each Furby over Bluetooth. An ESP32 board (or a laptop running porch.py) triggers "
+        "actions on the pink and blue Furbies over Bluetooth and hears back when each starts and ends. A motion "
+        "sensor and a button start greetings on the board; an iPhone remote talks to the board over Bluetooth, "
+        "sending commands and reading its status. EyeLights glasses run on their own with no link to the show."
+    )
+    svg = Svg(size, "How the porch show fits together", alt)
+    svg.text(60, 44, "How the porch show fits together", 40, fill="ink", bold=True)
+    svg.text(60, 98, "Bluetooth Low Energy (BLE) links, the build that feeds them, and the one prop that runs on "
+             "its own.", 22)  # fmt: skip
 
     # Build pipeline
     chips = ["show.toml", "halloween.py", "pink.dlc · blue.dlc · show.json", "flash.py"]
     x, y = 60, 160
     for i, chip in enumerate(chips):
-        w = d.textlength(chip, font=font(21 * s)) / s + 32
-        d.rounded_rectangle((x * s, y * s, (x + w) * s, (y + 44) * s), radius=22 * s, fill=(240, 237, 230),
-                            outline=RULE, width=2 * s)  # fmt: skip
-        d.text(((x + 16) * s, (y + 10) * s), chip, font=font(21 * s), fill=INK)
+        w = text_width(chip, 21) + 44  # room for a system font a little wider than SF
+        svg.rect(x, y, x + w, y + 44, fill="chip", stroke="rule", width=2, r=22)
+        svg.text(x + w / 2, y + 10, chip, 21, fill="ink", anchor="middle")
         x += w
         if i < len(chips) - 1:
-            arrow(d, s, (x + 6, y + 22), (x + 40, y + 22), color=MUTED)
+            arrow(svg, (x + 6, y + 22), (x + 40, y + 22), color="muted")
             x += 46
-    d.text(((x + 16) * s, (y + 10) * s), "BLE upload to each Furby: about 2–3½ min, about 350 KB max",
-           font=font(20 * s), fill=MUTED)  # fmt: skip
+    svg.text(x + 16, y + 10, "BLE upload to each Furby: about 2–3½ min, about 350 KB max", 20)
 
     # Controllers
-    box(d, s, (60, 280, 600, 380), "or a laptop: porch.py", ["Same show engine (furbyshow.py), over bleak"],
-        outline=MUTED, dashed=True)  # fmt: skip
-    box(d, s, (60, 420, 600, 600), "ESP32 board", ["DFRobot FireBeetle 2 ESP32-S3", "MicroPython + aioble, hidden",
+    box(svg, (60, 280, 600, 380), "or a laptop: porch.py", ["Same show engine (furbyshow.py), over bleak"],
+        outline="muted", dashed=True)  # fmt: skip
+    box(svg, (60, 420, 600, 600), "ESP32 board", ["DFRobot FireBeetle 2 ESP32-S3", "MicroPython + aioble, hidden",
         "on the porch; LED blinks who to wake next"])  # fmt: skip
-    box(d, s, (60, 720, 310, 880), "Motion sensor", ["HC-SR501 PIR", "on GPIO 4: greets", "arrivals"])
-    box(d, s, (350, 720, 600, 880), "Button", ["Plays a greeting", "now; no cooldown"])
-    arrow(d, s, (185, 720), (185, 600), "motion", label_dy=-12, label_at=0.5)
-    arrow(d, s, (475, 720), (475, 600), "press", label_dy=-12, label_at=0.5)
+    box(svg, (60, 720, 310, 880), "Motion sensor", ["HC-SR501 PIR", "on GPIO 4: greets", "arrivals"])
+    box(svg, (350, 720, 600, 880), "Button", ["Plays a greeting", "now; no cooldown"])
+    arrow(svg, (185, 720), (185, 600), "motion", label_dy=-12)
+    arrow(svg, (475, 720), (475, 600), "press", label_dy=-12)
 
     # Furbies
-    box(d, s, (1080, 260, 1540, 420), "Pink Furby", ["Evil · demon eyes", "PINK.DLC (stored as ____PINK.DLC)"],
-        outline=PINK, title_color=PINK)  # fmt: skip
-    box(d, s, (1080, 470, 1540, 630), "Blue Furby", ["Friendly · pumpkin eyes", "BLUE.DLC (stored as ____BLUE.DLC)"],
-        outline=BLUE, title_color=BLUE)  # fmt: skip
-    arrow(d, s, (600, 480), (1080, 340), both=True)
-    arrow(d, s, (600, 540), (1080, 550), both=True)
+    box(svg, (1080, 260, 1540, 420), "Pink Furby", ["Evil · demon eyes", "PINK.DLC (stored as ____PINK.DLC)"],
+        outline="pink", title_color="pink")  # fmt: skip
+    box(svg, (1080, 470, 1540, 630), "Blue Furby", ["Friendly · pumpkin eyes", "BLUE.DLC (stored as ____BLUE.DLC)"],
+        outline="blue", title_color="blue")  # fmt: skip
+    arrow(svg, (600, 480), (1080, 340), both=True)
+    arrow(svg, (600, 540), (1080, 550), both=True)
     for i, label in enumerate(("BLE, both ways: trigger action 0x13,", "replies 20:0c start · 20:0e end")):
-        w = d.textlength(label, font=font(19 * s)) / s
-        d.text(((840 - w / 2) * s, (566 + 26 * i) * s), label, font=font(19 * s), fill=MUTED)
+        svg.text(840, 566 + 26 * i, label, 19, anchor="middle")
 
     # Remote and glasses
-    box(d, s, (660, 740, 1020, 900), "iPhone remote", ["SwiftUI app, Nordic UART", "greet · scene N · status"])
-    arrow(d, s, (760, 740), (560, 600), "BLE", both=True, label_at=0.45, label_dy=-14)
-    box(d, s, (1080, 720, 1540, 900), "EyeLights glasses", ["CircuitPython · sound-reactive", "demon eyes for the",
-        "costume; no link to the show"], outline=(176, 128, 20), dashed=True)  # fmt: skip
-    path = os.path.join(WORK, "architecture-%dx%d.png" % size)
-    finish(im, size).save(path, optimize=True)
+    box(svg, (660, 740, 1020, 900), "iPhone remote", ["SwiftUI app, Nordic UART", "greet · scene N · status"])
+    arrow(svg, (760, 740), (560, 600), "BLE", both=True, label_at=0.45, label_dy=-14)
+    box(svg, (1080, 720, 1540, 900), "EyeLights glasses", ["CircuitPython · sound-reactive", "demon eyes for the",
+        "costume; no link to the show"], outline="amber", dashed=True)  # fmt: skip
     return {
-        "files": [path],
+        "files": [svg.save(os.path.join(WORK, "architecture-%dx%d.svg" % size))],
         "size": size,
         "kind": "image",
-        "alt": "Diagram. halloween/show.toml is built by halloween.py into pink.dlc, blue.dlc and show.json, which "
-        "flash.py uploads to each Furby over Bluetooth. An ESP32 board (or a laptop running porch.py) triggers "
-        "actions on the pink and blue Furbies over Bluetooth and hears back when each starts and ends. A motion "
-        "sensor and a button start greetings on the board; an iPhone remote talks to the board over Bluetooth, "
-        "sending commands and reading its status. EyeLights glasses run on their own with no link to the show.",
+        "alt": alt,
         "caption": "One board runs the show: it triggers each Furby's lines over Bluetooth, and the Furbies say "
         "when they're done. The glasses are a separate costume piece.",
     }
 
 
 def dlc_anatomy(ctx):
-    """One of the show's actions followed through the stock DLC's sections, with the real numbers."""
+    """One of the show's actions followed through the stock DLC's sections, with the real numbers, as an SVG."""
     import emulate
     import halloween
     from furby import dlc
@@ -561,39 +609,42 @@ def dlc_anatomy(ctx):
     delays = [w for w in seq[3:-1] if w >> 12 == 0x1]
     motor = seq[2]
     action = "·".join(map(str, code))
+    alt = (
+        "Diagram of a Furby Connect DLC file. A strip shows its sections by size: PAL, SPR and CEL hold the "
+        "eyes, AMF holds the audio, and small XLS, APL, LPS, SEQ and MTR sections link them. Below, action %s goes "
+        "through XLS to sequence %d, which names audio playlist %d (track %s, about %.0f seconds), eye animations "
+        "and a body movement."
+        % (action, seq_no, apl_no, ", ".join(map(str, tracks)), track_bytes / emulate.A18_BYTES_PER_SECOND)
+    )
 
-    s, size = 2, (1600, 900)
-    im, d = rounded_card(size, s)
-    d.text((60 * s, 44 * s), "Inside a Furby Connect DLC", font=font(40 * s, bold=True), fill=INK)
-    d.text((60 * s, 98 * s), "What one action plays, followed through the stock DLC's sections (numbers read from "
-           "dlc/dlc2/tu003410.dlc).", font=font(22 * s), fill=MUTED)  # fmt: skip
+    size = (1600, 900)
+    svg = Svg(size, "Inside a Furby Connect DLC", alt)
+    svg.text(60, 44, "Inside a Furby Connect DLC", 40, fill="ink", bold=True)
+    svg.text(60, 98, "What one action plays, followed through the stock DLC's sections (numbers read from "
+             "dlc/dlc2/tu003410.dlc).", 22)  # fmt: skip
 
     # The file's sections, as a strip in proportion to their size, coloured by what they hold
     order = ["PAL", "SPR", "CEL", "XLS", "AMF", "APL", "LPS", "SEQ", "MTR"]
-    kinds = {
-        "eyes": ((225, 214, 236), ["PAL", "SPR", "CEL"]),
-        "audio": ((214, 230, 222), ["AMF"]),
-        "links": ((236, 233, 226), ["XLS", "APL", "LPS", "SEQ", "MTR"]),
-    }
-    shade = {n: c for c, names in kinds.values() for n in names}
+    kinds = {"eyes": ["PAL", "SPR", "CEL"], "audio": ["AMF"], "links": ["XLS", "APL", "LPS", "SEQ", "MTR"]}
+    kind_of = {n: kind for kind, names in kinds.items() for n in names}
     total = sum(sec[n].length for n in order)
     x0, x1, y = 60, 1540, 160
     x = x0
     for n in order:
         w = max(4, (x1 - x0) * sec[n].length / total)
-        d.rectangle((x * s, y * s, (x + w - 2) * s, (y + 56) * s), fill=shade[n])
+        svg.rect(x, y, x + w - 2, y + 56, fill=kind_of[n])
         if w > 54:
-            d.text(((x + 8) * s, (y + 8) * s), n, font=font(20 * s, bold=True), fill=INK)
-            d.text(((x + 8) * s, (y + 32) * s), "%d KB" % round(sec[n].length / 1000), font=font(16 * s), fill=MUTED)
+            svg.text(x + 8, y + 8, n, 20, fill="ink", bold=True)
+            svg.text(x + 8, y + 32, "%d KB" % round(sec[n].length / 1000), 16)
         x += w
     x, ly = x0, y + 70
-    for kind, (colour, names) in kinds.items():
-        d.rectangle((x * s, ly * s, (x + 22) * s, (ly + 22) * s), fill=colour, outline=RULE, width=s)
+    for kind, names in kinds.items():
+        svg.rect(x, ly, x + 22, ly + 22, fill=kind, stroke="rule", width=1)
         label = "%s: %s (%d KB)" % (kind, ", ".join(names), round(sum(sec[n].length for n in names) / 1000))
-        d.text(((x + 30) * s, ly * s), label, font=font(18 * s), fill=MUTED)
-        x += 70 + d.textlength(label, font=font(18 * s)) / s
-    d.text((x0 * s, (ly + 32) * s), "%.1f MB in all. Stock DLCs come from the app; ours must stay under about 350 KB "
-           "to upload." % (total / 1e6), font=font(18 * s), fill=MUTED)  # fmt: skip
+        svg.text(x + 30, ly, label, 18)
+        x += 70 + text_width(label, 18)
+    svg.text(x0, ly + 32, "%.1f MB in all. Stock DLCs come from the app; ours must stay under about 350 KB to "
+             "upload." % (total / 1e6), 18)  # fmt: skip
 
     # The chain for one action
     y = 340
@@ -609,9 +660,9 @@ def dlc_anatomy(ctx):
     w, gap = 252, 55
     for i, (title, lines) in enumerate(steps):
         x = 60 + i * (w + gap)
-        box(d, s, (x, y, x + w, y + 170), title, lines, outline=PINK if i == 0 else INK)
+        box(svg, (x, y, x + w, y + 170), title, lines, outline="pink" if i == 0 else "ink")
         if i < len(steps) - 1:
-            arrow(d, s, (x + w + 4, y + 85), (x + w + gap - 4, y + 85))
+            arrow(svg, (x + w + 4, y + 85), (x + w + gap - 4, y + 85))
 
     # What else the sequence drives
     seq_x = 60 + 2 * (w + gap) + w // 2
@@ -622,26 +673,19 @@ def dlc_anatomy(ctx):
         if motor >> 12 == 0xC
         else "0x%04x is a built-in movement: about 1–10 s on a Furby" % motor
     )
-    box(d, s, (60, y2, 720, y2 + 200), "Eyes: SPR → CEL → PAL", ["eye word picks an animation; SPR lists its frames,",
+    box(svg, (60, y2, 720, y2 + 200), "Eyes: SPR → CEL → PAL", ["eye word picks an animation; SPR lists its frames,",
         "each frame is four 64×64 cels (CEL) in 64 colors", "from a palette (PAL, ARGB1555)"])  # fmt: skip
-    box(d, s, (780, y2, 1540, y2 + 200), "Body: motor word, plus delays", [body,
-        "%d delay words ≈ %.1f s more (10 ms units, assumed)" % (len(delays), delay_s)
-        if delays
+    box(svg, (780, y2, 1540, y2 + 200), "Body: motor word, plus delays", [body,
+        "%d delay words ≈ %.1f s more (10 ms units, assumed)" % (len(delays), delay_s) if delays
         else "No delay words in this sequence, so the movement sets its length",
         "The Furby stays busy until all of it ends"])  # fmt: skip
-    arrow(d, s, (seq_x - 40, y + 170), (390, y2), color=MUTED)
-    arrow(d, s, (seq_x + 40, y + 170), (1160, y2), color=MUTED)
-    path = os.path.join(WORK, "dlc-anatomy-%dx%d.png" % size)
-    finish(im, size).save(path, optimize=True)
+    arrow(svg, (seq_x - 40, y + 170), (390, y2), color="muted")
+    arrow(svg, (seq_x + 40, y + 170), (1160, y2), color="muted")
     return {
-        "files": [path],
+        "files": [svg.save(os.path.join(WORK, "dlc-anatomy-%dx%d.svg" % size))],
         "size": size,
         "kind": "image",
-        "alt": "Diagram of a Furby Connect DLC file. A strip shows its sections by size: PAL, SPR and CEL hold the "
-        "eyes, AMF holds the audio, and small XLS, APL, LPS, SEQ and MTR sections link them. Below, action %s goes "
-        "through XLS to sequence %d, which names audio playlist %d (track %s, about %.0f seconds), eye animations "
-        "and a body movement."
-        % (action, seq_no, apl_no, ", ".join(map(str, tracks)), track_bytes / emulate.A18_BYTES_PER_SECOND),
+        "alt": alt,
         "caption": "Following one action through a DLC. A clip's sequence also runs eyes and a body movement, "
         "and the Furby ignores the next clip's audio until the slowest of them finishes.",
     }
@@ -649,73 +693,68 @@ def dlc_anatomy(ctx):
 
 def pacing_chart(ctx):
     """One scene on two lanes, as emulate.py --worst plays it: each line's audio, then the time its Furby stays busy."""
-    from PIL import ImageDraw
-
     plan, report = emulated(ctx["plan"], worst=True)
     scene = sample_scene(plan, report)
     lines = played_lines(plan, scene)
     # A trigger that came while its Furby was still busy: answered 20:07, then retried when the Furby said 20:0e
     retries = [(t, f.replace("virtual-", ""), d) for t, f, e, d in scene["events"] if e == "silent"]
     end = max(t + busy for t, _, _, _, busy in lines)
-    s, size = 2, (1600, 680)
-    im, d = rounded_card(size, s)
-    d = ImageDraw.Draw(im)
-    d.text((60 * s, 40 * s), "One scene, two Furbies", font=font(38 * s, bold=True), fill=INK)
-    d.text((60 * s, 92 * s), " → ".join(scene["steps"]) + ". A Furby stays busy until its movement ends, so a line "
-           "sent before then has to wait.", font=font(21 * s), fill=MUTED)  # fmt: skip
+    desc = "; ".join("%s.%s starts at %.1f s, speaks %.1f s, busy %.1f s" % (w, c, t, a, b) for t, w, c, a, b in lines)
+    waits = " ".join("%s was still busy at %.1f s and waited to retry." % (w, t) for t, w, _ in retries)
+    alt = ("Timeline with a pink lane and a blue lane. %s. %s" % (desc, waits)).strip()
+
+    size = (1600, 680)
+    svg = Svg(size, "One scene, two Furbies", alt)
+    svg.text(60, 40, "One scene, two Furbies", 38, fill="ink", bold=True)
+    svg.text(60, 92, " → ".join(scene["steps"]) + ". A Furby stays busy until its movement ends, so a line sent "
+             "before then has to wait.", 21)  # fmt: skip
     left, right, top, lane_h = 200, 1540, 170, 150
     span = max(1, int(end + 1.999))
     px = (right - left) / span
 
     def X(t):
-        return (left + t * px) * s
+        return left + t * px
 
     for k in range(span + 1):  # recessive grid, a line a second
-        d.line((X(k), top * s, X(k), (top + 2 * lane_h) * s), fill=(232, 229, 222), width=s)
-        d.text((X(k) - 6 * s, (top + 2 * lane_h + 10) * s), "%d" % k, font=font(18 * s), fill=MUTED)
-    d.text((right * s - 90 * s, (top + 2 * lane_h + 36) * s), "seconds", font=font(18 * s), fill=MUTED)
-    for row, (name, colour) in enumerate((("pink", PINK), ("blue", BLUE))):
+        svg.line((X(k), top), (X(k), top + 2 * lane_h), stroke="grid", width=1)
+        svg.text(X(k), top + 2 * lane_h + 10, "%d" % k, 18, anchor="middle")
+    svg.text(right, top + 2 * lane_h + 36, "seconds", 18, anchor="end")
+    for row, name in enumerate(("pink", "blue")):
         y = top + row * lane_h
-        d.text((60 * s, (y + 52) * s), name, font=font(28 * s, bold=True), fill=INK)
-        d.line((left * s, (y + lane_h) * s, right * s, (y + lane_h) * s), fill=RULE, width=s)
-        y0, y1 = (y + 46) * s, (y + 96) * s
-        tint = tuple(int(c + (255 - c) * 0.72) for c in colour)
+        svg.text(60, y + 52, name, 28, fill="ink", bold=True)
+        svg.line((left, y + lane_h), (right, y + lane_h), stroke="rule", width=1)
+        y0, y1 = y + 46, y + 96
         for t, who, clip, audio, busy in lines:
             if who != name:
                 continue
-            d.rounded_rectangle((X(t), y0, X(t + busy), y1), radius=4 * s, fill=tint)
-            d.rounded_rectangle((X(t), y0, max(X(t) + 8 * s, X(t + audio) - 2 * s), y1), radius=4 * s, fill=colour)
-            d.text((X(t), (y + 14) * s), clip, font=font(21 * s), fill=INK)
+            svg.rect(X(t), y0, X(t + busy), y1, fill=name + "-tint", r=4)
+            svg.rect(X(t), y0, max(X(t) + 8, X(t + audio) - 2), y1, fill=name, r=4)
+            svg.text(X(t), y + 14, clip, 21, fill="ink")
         for t, who, _ in retries:
             retry = min((t2 for t2, w2, _, _, _ in lines if w2 == who and t2 >= t), default=None)
             if who != name or retry is None:  # a retry that never played has nothing to measure to
                 continue
-            _dashed_rect(d, (X(t), y0, X(retry) - 4 * s, y1), colour, 2 * s, 6 * s)
-            d.text((X(t), (y + 102) * s), "20:07 busy: waits %.1f s" % (retry - t), font=font(17 * s), fill=MUTED)
+            svg.rect(X(t), y0, X(retry) - 4, y1, stroke=name, width=2, dash=6)
+            svg.text(X(t), y + 102, "20:07 busy: waits %.1f s" % (retry - t), 17)
     ly = top + 2 * lane_h + 64
     x = 60
-    for label, colour in (("speaking", GREY), ("moving, still busy", (214, 214, 218)), ("waiting to retry", None)):
-        if colour:
-            d.rounded_rectangle((x * s, ly * s, (x + 34) * s, (ly + 22) * s), radius=4 * s, fill=colour)
+    for label, fill in (("speaking", "grey"), ("moving, still busy", "grey-tint"), ("waiting to retry", None)):
+        if fill:
+            svg.rect(x, ly, x + 34, ly + 22, fill=fill, r=4)
         else:
-            _dashed_rect(d, (x * s, ly * s, (x + 34) * s, (ly + 22) * s), GREY, 2 * s, 6 * s)
-        d.text(((x + 44) * s, ly * s), label, font=font(19 * s), fill=MUTED)
-        x += 64 + d.textlength(label, font=font(19 * s)) / s
-    d.text(((x + 10) * s, ly * s), "20:07 = the Furby's reply that it's busy", font=font(19 * s), fill=INK)
-    d.text((60 * s, (ly + 40) * s), "Emulated by emulate.py --worst: stand-in clip lengths, and each movement at the "
-           "top of the range timed across the show's slots (9 s). Not a recording.", font=font(17 * s),
-           fill=MUTED)  # fmt: skip
-    path = os.path.join(WORK, "pacing-chart-%dx%d.png" % size)
-    finish(im, size).save(path, optimize=True)
+            svg.rect(x, ly, x + 34, ly + 22, stroke="grey", width=2, dash=6)
+        svg.text(x + 44, ly, label, 19)
+        x += 64 + text_width(label, 19)
+    svg.text(x + 10, ly, "20:07 = the Furby's reply that it's busy", 19, fill="ink")
+    svg.text(60, ly + 40, "Emulated by emulate.py --worst: stand-in clip lengths, and each movement at the top of "
+             "the range timed across the show's slots (9 s). Not a recording.", 17)  # fmt: skip
     with open(os.path.join(WORK, "pacing-chart.json"), "w") as f:
         json.dump({"steps": scene["steps"], "lines": lines}, f, indent=1)
-    desc = "; ".join("%s.%s starts at %.1f s, speaks %.1f s, busy %.1f s" % (w, c, t, a, b) for t, w, c, a, b in lines)
-    waits = " ".join("%s was still busy at %.1f s and waited to retry." % (w, t) for t, w, _ in retries)
     return {
-        "files": [path],
+        "files": [svg.save(os.path.join(WORK, "pacing-chart-%dx%d.svg" % size))],
         "size": size,
         "kind": "image",
-        "alt": ("Timeline with a pink lane and a blue lane. %s. %s" % (desc, waits)).strip(),
+        "alt": alt,
         "caption": "One scene on virtual Furbies, with movements at their slowest. The pale tail is the movement "
         "that keeps a Furby busy after its line ends. Before the fix, a line sent then played with no sound at "
         "all, which happened to about a third of the lines in testing on a real Furby. Now the show hears the "

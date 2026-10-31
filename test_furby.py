@@ -3627,5 +3627,44 @@ class TestPackage(unittest.TestCase):
             package.main([], log=lambda m: None)
 
 
+class TestBlogMedia(unittest.TestCase):
+    """tools/blog_media.py's diagrams are vector SVGs that follow the viewer's light or dark mode"""
+
+    def test_diagrams_are_themed_svg(self):
+        """Each diagram parses as XML, has text, a title and desc, and a prefers-color-scheme query"""
+        import sys
+        import xml.etree.ElementTree as ET
+        from unittest import mock
+
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "tools"))
+        import blog_media
+
+        if not os.path.exists("./dlc/dlc2/tu003410.dlc"):
+            self.skipTest("Test DLC file not found")
+        temp_dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, temp_dir)
+        # The pacing chart's scene, as emulate.simulate() reports it: blue's second line waits on a busy Furby
+        plan = {"furbies": {"pink": {"clips": {"scream": {"action": [75, 0, 5, 3]}}},
+                            "blue": {"clips": {"door": {"action": [75, 0, 3, 2]}, "gotcha": {"action": [75, 0, 3, 5]}}}}}
+        events = [(0, "blue", "played", ([75, 0, 3, 2], 2.9, 9.0)), (3.5, "pink", "played", ([75, 0, 5, 3], 3.0, 9.0)),
+                  (7.6, "blue", "silent", (75, 0, 3, 5)), (9.0, "blue", "played", ([75, 0, 3, 5], 1.3, 9.0))]
+        report = [{"steps": blog_media.SAMPLE_SCENE, "silent": [], "skipped": [], "events": events}]
+        with mock.patch.object(blog_media, "WORK", temp_dir), \
+                mock.patch.object(blog_media, "emulated", lambda *a, **k: (plan, report)):
+            results = [fn({"plan": None}) for fn in (blog_media.architecture, blog_media.dlc_anatomy,
+                                                     blog_media.pacing_chart)]
+        ns = "{http://www.w3.org/2000/svg}"
+        for result in results:
+            (path,) = result["files"]
+            with self.subTest(diagram=os.path.basename(path)):
+                self.assertTrue(path.endswith(".svg"))
+                root = ET.parse(path).getroot()
+                self.assertEqual(root.get("viewBox"), "0 0 %d %d" % result["size"])
+                self.assertGreater(len(root.findall(".//%stext" % ns)), 5)
+                self.assertEqual(root.find(ns + "desc").text, result["alt"])
+                self.assertIn("prefers-color-scheme: dark", root.find(ns + "style").text)
+                self.assertIsNone(root.find(".//%simage" % ns))  # drawn, not a picture inside an SVG
+
+
 if __name__ == '__main__':
     unittest.main()

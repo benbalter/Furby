@@ -10,7 +10,7 @@ Python 3.11+ (`halloween.py` uses `tomllib`). Dependencies are in [pyproject.tom
 
 ```sh
 # All tests (CI runs exactly this on 3.11–3.14)
-uv run python -m unittest test_furby -v
+uv run python -m unittest test_furby test_eyelights -v
 # One class or test
 uv run python -m unittest test_furby.TestHalloween.test_build_show
 # Lint and format (config in pyproject.toml)
@@ -40,6 +40,7 @@ firmware/deploy.sh                      # copy the show to an ESP32 running Micr
 firmware/getlog.sh                      # copy the board's log.txt to build/board-log/ and restart the show
 uv run tools/watch_board.py [--seconds N]  # follow the board's log over USB through restarts; never sends keys
 uv run doctor.py --board               # is the board's main.py/furbyshow.mpy/remote.mpy/show.json/aioble current? (restarts it)
+cp -X eyelights/code.py /Volumes/CIRCUITPY/code.py  # the EyeLights glasses' demon eyes (see eyelights/README.md)
 swift test --package-path ios/FurbyRemoteKit  # the iPhone remote's protocol (command-line tools are enough)
 cd ios && xcodegen && open FurbyRemote.xcodeproj  # the iPhone app (needs Xcode; see ios/README.md)
 uv run tools/app_icon.py               # redraw the iPhone app's icon (ios/FurbyRemote/Assets.xcassets)
@@ -81,6 +82,8 @@ uv run emulate.py [--worst] [--scene N] [--durations measured.json]  # run show.
 - Each transport subclasses `furbyshow.Furby` (`connected`, `_write`, `disconnect`, feeding notifications to `on_response`) and supplies `find()`: [porch.py](porch.py) uses bleak, and [firmware/main.py](firmware/main.py) uses aioble with a watchdog, safe boot (button held at power-up), the status LED and the button. Its imports sit in a `try` so that `crashed()`, which needs only `machine`, can blink a failed start (three long blinks for 30 s) and reset. Everything the board prints goes through `say()`, which adds seconds since boot and appends to `log.txt` on the board (rotated to `log.txt.old` past `LOG_MAX`; only under MicroPython, so tests write nothing), and `trace=` logs tracebacks. Boot logs `reset_reason()`, `status()` logs a line every `STATUS_S`, and a failed connect names the step it reached (`AiobleFurby.step`), the scan's RSSI and, while asking for the DLC, the notifications that arrived, by kind. From the board, a just-connected Furby answered `0x72` every time but often not the `0x73` sent right after it (a laptop never saw this), so `AiobleFurby.identify()` pauses `SLOT_PAUSE_MS` before `0x73` and resends only `0x73`. In one test that was the fix: blue missed the first `0x73` and answered the resend, connecting in 5 s instead of after a rescan a minute or two later.
 
 - **Phone remote.** `REMOTE = True` in `firmware/main.py` makes `start_remote()` import [firmware/remote.py](firmware/remote.py) (deployed as `remote.mpy`), register a Nordic UART Service before any Furby connects, and advertise "Furby Show" for one phone at a time; `False` never imports it, which is the known-good fallback. Its docstring is the protocol (newline-terminated JSON chunked to the MTU; text commands `greet`, `scene N`, `clip x.y`, `status`). `say()` feeds every line to `remote.feed()` (a backlog and an error list), status comes from `main.status_info()`, and `scene`/`clip` go through `Show.request()`, which plays next, outside the shuffled deck, as a press (no sensor cooldown). [ios/](ios/README.md) is the SwiftUI app: `project.yml` (XcodeGen; the `.xcodeproj` and `Info.plist` are generated and ignored), `FurbyRemoteKit` (the protocol as a Swift package with Swift Testing, run in CI's macOS job), and `BoardLink` (CoreBluetooth on the main queue, `@Observable @MainActor`). Unverified on hardware: whether a third Bluetooth link changes the Furbies' connect timing.
+
+- **EyeLights glasses.** [eyelights/code.py](eyelights/code.py) is Adafruit's Blinky Eyes (MIT, Phil Burgess's SPDX line kept) turned into sound-reactive demon eyes for the [Adafruit EyeLights](https://learn.adafruit.com/adafruit-eyelights-led-glasses-and-driver), on CircuitPython 10.3.1. It's separate from the show: no Bluetooth link to the Furbies or the board. Logic with no hardware (`Mood`, `Level`, `Heart`, `Lightning`, `smooth()`) is what [test_eyelights.py](test_eyelights.py) drives, with fake CircuitPython modules. `main()` takes `clock`/`sleep` and resolves `time.monotonic` at call time, since MicroPython has none. `DEMON`/`STORM` copy `halloween.THEME_LIGHTS`, guarded by a test. Ring and lightning timings are held under 3 flashes a second for photosensitivity, and tests check that; keep it so. On the glasses: about 12 fps (I2C at 400 kHz for the LIS3DH), and mic, accelerometer and button all started. Eject CIRCUITPY before unplugging ([circuitpython#8449](https://github.com/adafruit/circuitpython/issues/8449)).
 
 **`furbyshow.py` and `firmware/` must run on MicroPython:**
 - no `typing`, `dataclasses` or `time.monotonic` (use the `ticks_ms`/`ticks_diff` helpers);

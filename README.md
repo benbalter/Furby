@@ -16,6 +16,7 @@ On top of [Context's original tools](https://github.com/ctxis/Furby), this fork 
 - **[A two-Furby Halloween show](#set-up-the-halloween-show):** an evil Furby and a friendly one trade lines in short scenes, run from a laptop or a hidden ESP32.
 - **[Custom eyes](#example-spooky-halloween-eyes):** demon, jack-o'-lantern and other animated eyes, drawn in code.
 - **[Audio tools that need no Windows DLL](#audio-conversion):** convert any audio to the Furby's `.a18` format, unpack a DLC's clips to WAV, and fetch public-domain sound effects.
+- **[Demon eyes for EyeLights glasses](eyelights/README.md):** sound-reactive LED glasses in pink Furby's colours, for whoever hands out the candy.
 - **[Flashing from the terminal](#flashing-a-dlc):** `flash.py` puts a DLC on a Furby over Bluetooth, no browser or reset needed.
 
 ## Set up the Halloween show
@@ -174,7 +175,7 @@ This project requires Python 3.11 or later and uses [uv](https://docs.astral.sh/
 Run the test suite to verify the installation:
 
 ```bash
-uv run python -m unittest test_furby -v
+uv run python -m unittest test_furby test_eyelights -v
 ```
 
 The test suite includes:

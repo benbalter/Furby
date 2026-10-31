@@ -15,8 +15,15 @@ manifest.json beside public/ (its file paths are relative to --out):
 
 It wraps what's already here rather than redrawing it: spooky_eyes.preview()
 for the eyes, voices.py for stand-in voice lines, halloween.build_show() and
-emulate.simulate() for the pacing chart and the sample audio, and the stock
-DLC (read, never shipped) for the DLC anatomy.
+emulate.simulate() for the pacing chart and the sample audio, preview.py's
+browser simulator for the scene previews, and your stock DLC (read, never
+shipped) for the DLC anatomy. The blog's show builds on tools/synthetic_dlc.py's
+stand-in, not a stock DLC, so no Hasbro eyes or audio reach any frame.
+
+Scene previews (hero-preview and preview-*) record the simulator with
+Playwright, muted, with each line as a caption and a "Simulated preview"
+label: uv run --with playwright tools/blog_media.py ... (it needs Chromium,
+from playwright install chromium). Without Playwright they're skipped.
 
 Audio policy. Nothing derived from Hasbro audio goes in. The blog's show is
 halloween/show.toml with every build/cloned/ voice line pointed at a folder of
@@ -28,8 +35,9 @@ sample .m4a) may only be:
 macOS's say voices are licensed for personal, non-commercial use only, so
 with --voices say (or without espeak-ng) the lines are made with say for the
 pacing chart's timing alone, and the sample audio is skipped. Copyrighted
-music is pointed at an empty folder, so its scenes drop out. The DLCs built
-along the way stay in build/. Anything else stops the script.
+music becomes silence of the same name, so its scenes keep their timing and
+can be shown, captioned, but never heard. The DLCs built along the way stay in
+build/. Anything else stops the script.
 
 Photosensitivity: every video is checked for more than 3 flashes a second in
 any part of the frame, and the script fails rather than ship one.
@@ -47,6 +55,7 @@ import csv
 import io
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -55,12 +64,13 @@ from xml.sax.saxutils import escape
 
 ROOT = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 sys.path.insert(0, ROOT)
+import synthetic_dlc  # noqa: E402  (beside this file in tools/)
 
 WORK = "build/blog"
 ESPEAK_VOICES = WORK + "/voices-espeak"
 SAY_VOICES = WORK + "/voices-say"  # never ships: Apple licenses its voices for personal, non-commercial use
 SFX = "build/sfx"
-# NO_MUSIC is where the blog's show.toml points copyrighted music: always empty, so those optional clips drop out
+# Where the blog's show.toml points copyrighted music: silence of the same name, made each run
 NO_MUSIC = WORK + "/no-music"
 # The blog's DLCs never leave build/, so they may also use the repo's Toccata, whose recording has no stated license
 BUILD_AUDIO = (ESPEAK_VOICES + "/", SAY_VOICES + "/", SFX + "/", "audio/new_audio/", NO_MUSIC + "/")
@@ -375,14 +385,15 @@ def blog_show(voices_engine="espeak", log=print):
         )
         if engine is None:
             raise SystemExit("No text-to-speech for the stand-in voices: brew install espeak-ng")
-    if os.path.isdir(NO_MUSIC) and os.listdir(NO_MUSIC):
-        raise SystemExit(
-            "%s should be empty (copyrighted music is pointed there to leave it out): remove it." % NO_MUSIC
-        )
     toml = os.path.join(WORK, "show.toml")
     with open("halloween/show.toml", encoding="utf-8") as f:
         text = f.read()
     os.makedirs(WORK, exist_ok=True)
+    # Copyrighted music becomes silence of the same name, made afresh, so its scenes keep their timing
+    shutil.rmtree(NO_MUSIC, ignore_errors=True)
+    os.makedirs(NO_MUSIC)
+    for name in sorted(set(re.findall(r"build/music/([^\"]+)", text))):
+        ffmpeg("-f", "lavfi", "-i", "anullsrc=r=16000:cl=mono", "-t", "30", os.path.join(NO_MUSIC, name))
     with open(toml, "w", encoding="utf-8") as f:
         f.write(text.replace("build/cloned/", folder + "/").replace("build/music/", NO_MUSIC + "/"))
     show = halloween.load_show(toml)
@@ -394,8 +405,10 @@ def blog_show(voices_engine="espeak", log=print):
     made, _ = voices.make_voices(copy.deepcopy(show), engine, force=True, log=lambda line: None)
     log("  stand-in voices: %d made with %s in %s" % (len(made), engine.name, folder))
     out = os.path.join(WORK, "show")
+    # Built on the synthetic DLC, not a stock one, so nothing Hasbro's is in any frame or sound
+    base = synthetic_dlc.build(os.path.join(WORK, "synthetic.dlc"))
     with contextlib.redirect_stdout(io.StringIO()) as quiet:
-        plan = halloween.build_show(show, out, skip_missing=True)
+        plan = halloween.build_show(show, out, skip_missing=True, dlc_in=base)
     with open(os.path.join(WORK, "build.log"), "w", encoding="utf-8") as f:
         f.write(quiet.getvalue())
     return plan
@@ -804,6 +817,184 @@ def scene_sample_audio(ctx):
     }
 
 
+# ---- simulator previews: preview.py's virtual porch, recorded -----------------------
+
+# Each preview: the scene's steps, its manifest alt text and caption
+PREVIEWS = {
+    "preview-greeting": (["blue.takeone", "pink.dare"], "the friendly blue Furby offers candy and the evil pink "
+                         "one dares the trick-or-treater to take two"),
+    "preview-watching": (["pink.watching", "blue.hi"], "pink says it's watching you and blue chimes in that it's "
+                         "watching too"),
+    "preview-door-scream": (["blue.door", "pink.scream", "blue.gotcha"], "a door creaks, pink screams, and blue "
+                            "giggles that it got you"),
+    "preview-ghostbusters": (["blue.whocall", "pink.ghostbusters + blue.ghostbusters"], "blue asks who you're gonna "
+                             "call, waits a beat for the kids to shout it, then both Furbies play the theme"),
+    "preview-toccata": (["pink.toccata", "blue.song"], "pink plays the opening of Bach's Toccata in D minor and blue "
+                        "says it loves this song"),
+}  # fmt: skip
+PREVIEWS["hero-preview"] = PREVIEWS["preview-door-scream"]  # the post's lead image, until there's porch footage
+# Captions for clips without words: sound effects in brackets, music between notes
+SOUND_CAPTIONS = {"door": "[a door creaks]", "scream": "[a scream]", "cackle": "[cackling]", "cackle2": "[cackling]",
+                  "moan": "[a ghostly moan]", "evillaugh": "[evil laughter]", "toccata": "♪ Toccata in D minor ♪",
+                  "ghostbusters": "♪ Ghostbusters theme ♪"}  # fmt: skip
+PREVIEW_SIZE = (1040, 500)
+PREVIEW_FPS = 25
+# The page's porch only: the two Furbies, a caption bar under them, and a label that says what this is
+PREVIEW_CSS = """
+h1, .sub, .controls, #status, #log, .notes, .now, .meta { display: none !important; }
+main { padding-top: 24px !important; }
+#porch { position: relative; }
+#caption { margin: 18px auto 0; min-height: 2.6em; max-width: 960px; text-align: center; font: 600 26px/1.3
+  ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif; color: #fff; }
+#caption span { background: rgba(0, 0, 0, .72); border-radius: 10px; padding: 6px 16px; box-decoration-break: clone; }
+#simlabel { position: absolute; top: 10px; right: 12px; z-index: 5; font: 600 14px ui-sans-serif, system-ui,
+  sans-serif; color: #fff; background: rgba(0, 0, 0, .6); border: 1px solid rgba(255, 255, 255, .35);
+  border-radius: 999px; padding: 4px 12px; letter-spacing: .02em; }
+"""
+# Each line's caption shows while its sound plays, from the same events the page plays
+PREVIEW_JS = """
+([captions]) => {
+  const bar = document.createElement("div"); bar.id = "caption"; bar.setAttribute("aria-live", "polite");
+  document.getElementById("porch").after(bar);
+  const label = document.createElement("div"); label.id = "simlabel"; label.textContent = "Simulated preview";
+  document.getElementById("porch").append(label);
+  const showing = new Map();
+  const draw = () => {
+    const texts = [...new Set(showing.values())];
+    bar.innerHTML = texts.length ? "<span>" + texts.join("<br>") + "</span>" : "";
+  };
+  const original = handle;
+  handle = function (e, t) {
+    if (e.kind === "play") {
+      const key = e.furby + "." + e.clip;
+      if (captions[key]) {
+        showing.set(key, captions[key]);
+        draw();
+        setTimeout(() => { showing.delete(key); draw(); }, 1000 * (e.audio || 1));
+      }
+    }
+    return original(e, t);
+  };
+}
+"""
+
+
+def preview_captions(toml_path):
+    """{"furby.clip": caption} for every clip in the blog's show: its words, or what the sound is."""
+    import halloween
+
+    captions = {}
+    for name, furby in halloween.load_show(toml_path)["furbies"].items():
+        for clip, value in furby["clips"].items():
+            text = halloween.clip_spec(value).get("text")
+            captions[name + "." + clip] = (
+                "%s: “%s”" % (name.capitalize(), text) if text else SOUND_CAPTIONS.get(clip, "[%s]" % clip)
+            )
+    return captions
+
+
+def record_scene(page_dir, index, captions, out_webm):
+    """Play scene index on the preview page, muted, and record it; returns (recording, seconds into it the scene
+    starts, the scene's length)."""
+    import time
+
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        raise SystemExit("Recording needs Playwright: uv run --with playwright tools/blog_media.py ...") from None
+    url = "file://" + os.path.abspath(os.path.join(page_dir, "index.html"))
+    work = tempfile.mkdtemp(dir=WORK)
+    with sync_playwright() as p:
+        browser = p.chromium.launch(args=["--mute-audio", "--autoplay-policy=no-user-gesture-required"])
+        context = browser.new_context(viewport=dict(zip(("width", "height"), PREVIEW_SIZE, strict=True)),
+                                      record_video_dir=work, record_video_size=dict(zip(("width", "height"),
+                                      PREVIEW_SIZE, strict=True)))  # fmt: skip
+        opened = time.monotonic()
+        page = context.new_page()
+        page.goto(url)
+        page.add_style_tag(content=PREVIEW_CSS)
+        page.evaluate(PREVIEW_JS, [captions])
+        page.wait_for_timeout(800)  # let the idle eyes draw before the scene starts
+        end = page.evaluate("(i) => P.timelines.typical[i].end", index)
+        started = time.monotonic() - opened
+        page.evaluate("(i) => begin(i, null)", index)
+        page.wait_for_timeout(int(1000 * (end + 1.2)))
+        video = page.video.path()
+        context.close()
+        browser.close()
+    shutil.move(video, out_webm)
+    shutil.rmtree(work, ignore_errors=True)
+    return out_webm, started, end
+
+
+def encode_recording(source, base, start, seconds, poster_at):
+    """Trim a recording to base.mp4, base.webm and base.jpg (at poster_at s), muted; returns the paths.
+
+    Stops if it flashes more than MAX_FLASHES_PER_S times a second, checked on small frames of the trimmed clip.
+    """
+    from PIL import Image
+
+    trim = ["-ss", "%.2f" % start, "-t", "%.2f" % seconds, "-i", source, "-an"]
+    with tempfile.TemporaryDirectory() as tmp:
+        ffmpeg(*trim, "-vf", "fps=%d,scale=260:-2" % PREVIEW_FPS, os.path.join(tmp, "%04d.png"))
+        frames = [Image.open(os.path.join(tmp, f)).convert("RGB") for f in sorted(os.listdir(tmp))]
+        flashes = flashes_per_second(frames, PREVIEW_FPS)
+    if flashes > MAX_FLASHES_PER_S:
+        raise SystemExit("%s flashes %d times a second, over the limit of %d for photosensitive viewers."
+                         % (os.path.basename(base), flashes, MAX_FLASHES_PER_S))  # fmt: skip
+    vf = ["-vf", "fps=%d,scale=960:-2" % PREVIEW_FPS]
+    ffmpeg(*trim, *vf, "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "26", "-preset", "slow",
+           "-movflags", "+faststart", base + ".mp4")  # fmt: skip
+    ffmpeg(*trim, *vf, "-c:v", "libvpx-vp9", "-pix_fmt", "yuv420p", "-b:v", "0", "-crf", "38", "-row-mt", "1",
+           base + ".webm")  # fmt: skip
+    ffmpeg("-ss", "%.2f" % (start + poster_at), "-i", source, "-frames:v", "1", "-vf", "scale=960:-2",
+           "-q:v", "3", base + ".jpg")  # fmt: skip
+    for p in (base + ".mp4", base + ".webm"):
+        if os.path.getsize(p) > MAX_VIDEO_BYTES:
+            print(
+                "  warning: %s is %d KB, over the %d KB goal" % (p, os.path.getsize(p) // 1000, MAX_VIDEO_BYTES // 1000)
+            )
+    return [base + ext for ext in (".webm", ".mp4", ".jpg")]
+
+
+def simulator_preview(item_id):
+    """The item that records PREVIEWS[item_id] on preview.py's virtual porch."""
+
+    def render(ctx):
+        import preview
+
+        steps, what = PREVIEWS[item_id]
+        with open(ctx["plan"]) as f:
+            scenes = json.load(f)["scenes"]
+        if steps not in scenes:
+            raise SystemExit("The blog's show has no scene %s." % " → ".join(steps))
+        page = os.path.join(WORK, "preview")
+        if "page" not in ctx:  # one page for every preview
+            with contextlib.redirect_stdout(io.StringIO()):
+                preview.build_preview(ctx["plan"], page)
+            ctx["page"] = page
+        captions = preview_captions(os.path.join(WORK, "show.toml"))
+        webm, start, seconds = record_scene(
+            page, scenes.index(steps), captions, os.path.join(WORK, item_id + "-raw.webm")
+        )
+        lead = 0.4  # a moment of the porch before the first line
+        files = encode_recording(webm, os.path.join(WORK, item_id), max(0, start - lead), seconds + lead + 0.8,
+                                 poster_at=lead + seconds * 0.45)  # fmt: skip
+        return {
+            "files": files,
+            "size": (960, round(960 * PREVIEW_SIZE[1] / PREVIEW_SIZE[0] / 2) * 2),
+            "kind": "video",
+            "alt": "Simulated preview, not porch footage: two cartoon Furbies on a dark background, pink with red "
+            "demon eyes and blue with orange jack-o'-lantern eyes. %s. Each line appears as a caption."
+            % what.capitalize(),
+            "caption": "A simulated preview from the show's browser simulator (preview.py), built with stand-in parts "
+            "and muted, with the lines as captions. It isn't footage of the real Furbies.",
+        }
+
+    render.__doc__ = "Scene %s on the browser simulator, muted, with captions." % " → ".join(PREVIEWS[item_id][0])
+    return render
+
+
 # id → (function, needs the blog's show built, optional)
 ITEMS = {
     "eyes-themes": (eyes_themes, False, False),
@@ -812,6 +1003,7 @@ ITEMS = {
     "dlc-anatomy": (dlc_anatomy, False, False),
     "pacing-chart": (pacing_chart, True, False),
     "scene-sample-audio": (scene_sample_audio, True, True),
+    **{item_id: (simulator_preview(item_id), True, True) for item_id in PREVIEWS},
 }
 
 

@@ -13,7 +13,8 @@ silent or be skipped, and eyecheck.py can check the eyes.
 
 Each tone lasts as long as the clip's snippet (its seconds) or a second and a
 bit, and is written as .a18 directly, so no ffmpeg is needed. Optional clips
-get a tone too, so their scenes are tested rather than dropped.
+get a tone too, so their scenes are tested rather than dropped. Without your
+stock DLC (see stock_dlc.py), it builds on tools/synthetic_dlc.py's stand-in.
 
 USAGE (from the repo root):
     python tools/ci_show.py                    # build/ci-show/{pink,blue}.dlc, show.json
@@ -22,35 +23,18 @@ USAGE (from the repo root):
 """
 
 import argparse
-import math
 import os
-import struct
 import sys
-from array import array
-
-import a1800_codec
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
+from synthetic_dlc import build as synthetic_dlc  # noqa: E402
+from synthetic_dlc import write_tone  # noqa: E402
+
 import halloween  # noqa: E402
+import stock_dlc  # noqa: E402
 
-RATE = 16000
-BITRATE = 16000
 DEFAULT_SECONDS = 1.2
-
-
-def tone(path, seconds, hz):
-    """A sine tone that swells and fades (so the antenna envelope isn't flat), as .a18."""
-    n = int(RATE * seconds)
-    samples = array(
-        "h", (int(12000 * math.sin(math.pi * i / n) * math.sin(2 * math.pi * hz * i / RATE)) for i in range(n))
-    )
-    if sys.byteorder == "big":
-        samples.byteswap()  # the codec takes little-endian samples
-    frames = bytes(a1800_codec.encode(samples.tobytes(), BITRATE))[6:]
-    with open(path, "wb") as f:  # the header encode_a18.py writes: length counts the 2-byte bitrate
-        f.write(struct.pack("<IH", len(frames) + 2, BITRATE) + frames)
-    return path
 
 
 def placeholder_show(show, clip_dir):
@@ -62,7 +46,7 @@ def placeholder_show(show, clip_dir):
             seconds = float(spec.pop("seconds", None) or DEFAULT_SECONDS)
             spec.pop("start", None)
             spec["optional"] = False
-            spec["path"] = tone(os.path.join(clip_dir, "%s_%s.a18" % (name, clip)), seconds, 300 + 40 * i)
+            spec["path"] = write_tone(os.path.join(clip_dir, "%s_%s.a18" % (name, clip)), seconds, 300 + 40 * i)
             furby["clips"][clip] = spec
     return show
 
@@ -71,9 +55,13 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("show", nargs="?", default="./halloween/show.toml")
     parser.add_argument("-o", "--out-dir", default="./build/ci-show")
+    parser.add_argument("--dlc", help="the DLC to build on (default: your stock DLC, else a synthetic one)")
     args = parser.parse_args(argv)
+    dlc_in = args.dlc or stock_dlc.path()
+    if not os.path.exists(dlc_in):  # CI has no stock DLC: the synthetic one has its layout
+        dlc_in = synthetic_dlc(os.path.join(args.out_dir, "synthetic.dlc"))
     show = placeholder_show(halloween.load_show(args.show), os.path.join(args.out_dir, "clips"))
-    return halloween.build_show(show, args.out_dir)
+    return halloween.build_show(show, args.out_dir, dlc_in=dlc_in)
 
 
 if __name__ == "__main__":

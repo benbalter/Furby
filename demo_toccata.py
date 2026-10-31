@@ -31,9 +31,9 @@ perfect for giving your Furby a dramatic, theatrical personality.
 
 REQUIREMENTS:
     - Python 3.11+ and uv (uv installs Pillow and the other packages)
-    - A Furby Connect DLC file (e.g., ./dlc/dlc2/tu003410.dlc)
+    - Your stock DLC at ./dlc/stock.dlc, or FURBY_STOCK_DLC (see stock_dlc.py)
     - Toccata audio in .a18 format at ./build/toccata.a18:
-      uv run audioutils/encode_a18.py audio/new_audio/toccata_in_d_minor_16khz.wav build/toccata.a18 --duration 10
+      uv run audioutils/encode_a18.py audio/new_audio/toccata_bwv565_opening.wav build/toccata.a18 --duration 10
 
 USAGE:
     uv run demo_toccata.py
@@ -45,11 +45,12 @@ see TOCCATA_EXAMPLE.md, which uses spooky_eyes.py --song.
 """
 
 from furby import dlc
+import stock_dlc
 from spooky_eyes import MAX_UPLOAD
 import os
 
 
-def make_toccata_furby(dlc_in="./dlc/dlc2/tu003410.dlc", 
+def make_toccata_furby(dlc_in=None, 
                        toccata_audio="./build/toccata.a18",
                        dlc_out="./build/toccata.dlc",
                        minify=False):
@@ -73,8 +74,7 @@ def make_toccata_furby(dlc_in="./dlc/dlc2/tu003410.dlc",
     """
     
     # Check if files exist
-    if not os.path.exists(dlc_in):
-        raise OSError("Input DLC file not found: %s" % dlc_in)
+    dlc_in = stock_dlc.require(dlc_in)
     
     if not os.path.exists(toccata_audio):
         print("WARNING: Toccata audio file not found: %s" % toccata_audio)
@@ -127,7 +127,7 @@ def make_toccata_furby(dlc_in="./dlc/dlc2/tu003410.dlc",
     print("\nNOTE: Be careful when uploading custom DLCs - bad DLCs can make your Furby unhappy.")
 
 
-def create_multi_track_toccata(dlc_in="./dlc/dlc2/tu003410.dlc",
+def create_multi_track_toccata(dlc_in=None,
                                  toccata_intro="./build/toccata_intro.a18",
                                  toccata_main="./build/toccata_main.a18", 
                                  toccata_climax="./build/toccata_climax.a18",
@@ -152,8 +152,7 @@ def create_multi_track_toccata(dlc_in="./dlc/dlc2/tu003410.dlc",
     """
     
     # Check if files exist
-    if not os.path.exists(dlc_in):
-        raise OSError("Input DLC file not found: %s" % dlc_in)
+    dlc_in = stock_dlc.require(dlc_in)
     
     audio_files = [toccata_intro, toccata_main, toccata_climax]
     missing_files = [f for f in audio_files if not os.path.exists(f)]

@@ -38,10 +38,10 @@ import sys
 import time
 
 import furbyshow
+import stock_dlc
 from flash import check_name
 
 OUT_DIR = "./build/probe"
-STOCK_DLC = "./dlc/dlc2/tu003410.dlc"
 SHOW_JSON = "./build/halloween/show.json"
 EYES = "demon"  # every probe slot shows this one animation, 0x8401 (the proven layout)
 
@@ -90,7 +90,7 @@ def hexes(words):
     return ["0x%04x" % w for w in words]
 
 
-def build(name, motors=None, out_dir=OUT_DIR, dlc_in=STOCK_DLC, say=speak):
+def build(name, motors=None, out_dir=OUT_DIR, dlc_in=None, say=speak):
     """Build a probe DLC and its slot map; returns the DLC's path.
 
     Without motors, every scene slot says its number and keeps its stock
@@ -103,6 +103,7 @@ def build(name, motors=None, out_dir=OUT_DIR, dlc_in=STOCK_DLC, say=speak):
     from spooky_eyes import build as build_dlc
 
     check_name(name)
+    dlc_in = stock_dlc.require(dlc_in)
     slots = scene_slots(dlc(dlc_in))
     if motors is not None and len(motors) > len(slots):
         half = len(motors) // 2
@@ -148,7 +149,7 @@ def build(name, motors=None, out_dir=OUT_DIR, dlc_in=STOCK_DLC, say=speak):
 # --- Running ----------------------------------------------------------------
 
 
-def load_slots(name, out_dir=OUT_DIR, show_json=SHOW_JSON, dlc_in=STOCK_DLC):
+def load_slots(name, out_dir=OUT_DIR, show_json=SHOW_JSON, dlc_in=None):
     """The slots to play for a DLC name: its probe map, else show.json's clips, else the stock scene slots."""
     path = os.path.join(out_dir, name + ".json")
     if os.path.exists(path):
@@ -166,7 +167,8 @@ def load_slots(name, out_dir=OUT_DIR, show_json=SHOW_JSON, dlc_in=STOCK_DLC):
     from spooky_eyes import scene_slots
 
     print("No %s, so playing the stock scene slots in order." % path)
-    return [{"n": n, "action": list(code), "say": str(n)} for n, code in enumerate(scene_slots(dlc(dlc_in)), 1)]
+    slots = scene_slots(dlc(stock_dlc.require(dlc_in)))
+    return [{"n": n, "action": list(code), "say": str(n)} for n, code in enumerate(slots, 1)]
 
 
 class Recorder:

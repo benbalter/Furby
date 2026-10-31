@@ -1,13 +1,13 @@
 # Toccata in D Minor: an example
 
-This walks through making a Furby Connect play the opening of Bach's Toccata and Fugue in D Minor (BWV 565), which is public domain. The repo includes the first 20 seconds as [`audio/new_audio/toccata_in_d_minor_16khz.wav`](audio/new_audio/toccata_in_d_minor_16khz.wav) (16 kHz mono), and the Halloween show already plays 5 seconds of it ([`halloween/show.toml`](halloween/show.toml)'s `toccata` clip).
+This walks through making a Furby Connect play the opening of Bach's Toccata and Fugue in D Minor (BWV 565), which is public domain. The repo includes the opening as [`audio/new_audio/toccata_bwv565_opening.wav`](audio/new_audio/toccata_bwv565_opening.wav) (16 kHz mono), rendered from the score by [`tools/toccata.py`](tools/toccata.py), and the Halloween show already plays 5 seconds of it ([`halloween/show.toml`](halloween/show.toml)'s `toccata` clip).
 
 ## Quick start
 
 From the repo's folder, with [uv](https://docs.astral.sh/uv/) and ffmpeg installed:
 
 ```bash
-uv run audioutils/encode_a18.py audio/new_audio/toccata_in_d_minor_16khz.wav build/toccata.a18 --duration 10
+uv run audioutils/encode_a18.py audio/new_audio/toccata_bwv565_opening.wav build/toccata.a18 --duration 10
 uv run spooky_eyes.py --song build/toccata.a18   # build/spooky_demon.dlc, about 175 KB
 cp build/spooky_demon.dlc build/toccata.dlc      # flash.py needs a name of 8 letters or fewer
 uv run flash.py build/toccata.dlc                # with only this Furby awake
@@ -24,7 +24,7 @@ Audio costs about 2 KB a second, and a DLC has to stay under about 350 KB to upl
 
 ```python
 from furby import dlc
-D = dlc("./dlc/dlc2/tu003410.dlc")
+D = dlc("./dlc/stock.dlc")
 ```
 
 ### 2. Replace the audio for some actions

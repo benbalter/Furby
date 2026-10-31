@@ -45,6 +45,7 @@ import sys
 
 from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
+import stock_dlc
 from eyecheck import PROVEN_MIN_CELS
 from furby import dlc
 
@@ -529,7 +530,7 @@ def build(
     song=None,
     sting=None,
     clips=None,
-    dlc_in="./dlc/dlc2/tu003410.dlc",
+    dlc_in=None,
     out_dir="./build",
     name=None,
     eyes=None,
@@ -552,7 +553,7 @@ def build(
     work_dir = os.path.join(out_dir, name or theme)
     os.makedirs(work_dir, exist_ok=True)
 
-    D = dlc(dlc_in)
+    D = dlc(stock_dlc.require(dlc_in))
     D.dlc_sections["AMF"].minify_audio(128)
 
     if song:
@@ -690,7 +691,7 @@ def install_layout(D, keys, work_dir, palette="ramp", share=False, dedup="none",
     return [FIRST_ANIMATION]
 
 
-def build_probe(dlc_in="./dlc/dlc2/tu003410.dlc", out_dir="./build/eyes_probe2", only=None):
+def build_probe(dlc_in=None, out_dir="./build/eyes_probe2", only=None):
     """DLCs of numbered test animations that answer what's unverified about eyes; returns their paths."""
     from demo import install_eyes
 
@@ -703,7 +704,7 @@ def build_probe(dlc_in="./dlc/dlc2/tu003410.dlc", out_dir="./build/eyes_probe2",
         for digits, frames, colour in anims:
             keys = [_digit(int(d), colour).resize((SIZE, SIZE), Image.LANCZOS) for d in digits]
             animations.append((keys, [i * len(digits) // frames for i in range(frames)]))
-        D = dlc(dlc_in)
+        D = dlc(stock_dlc.require(dlc_in))
         D.dlc_sections["AMF"].minify_audio(128)
         work_dir = os.path.join(out_dir, name[:-4])
         if how == "demo":
@@ -733,8 +734,10 @@ def build_probe(dlc_in="./dlc/dlc2/tu003410.dlc", out_dir="./build/eyes_probe2",
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--theme", choices=sorted(THEMES), default="demon")
-    parser.add_argument("--song", default="./audio/new_audio/imperial_march-16000_wav.a18", help="audio for 75-0-4-4")
-    parser.add_argument("--sting", default="./audio/new_audio/darkside_wav.a18", help="audio for 75-0-3-4")
+    parser.add_argument(
+        "--song", default="./audio/new_audio/toccata_bwv565_opening.wav", help="audio for 75-0-4-4 (the Toccata)"
+    )
+    parser.add_argument("--sting", help="audio for 75-0-3-4")
     parser.add_argument("--no-song", action="store_true", help="leave 75-0-4-4 and 75-0-3-4 alone, to save space")
     parser.add_argument("--frames", type=int, default=FRAMES, help="frames per animation (default %d)" % FRAMES)
     parser.add_argument("--preview", action="store_true", help="write build/eyes/<theme>.gif and .png for every theme")

@@ -16,7 +16,7 @@ uv run audioutils/encode_a18.py monster_mash.mp3 build/monster_mash.a18 --start 
 
 ### extract_voice.py
 
-Decodes every clip in a DLC to WAV: the stock DLC (`dlc/dlc2/tu003410.dlc`) by default, into `build/voice/` (`-o` to change). The stock clips are Hasbro's, so keep them in `build/` and don't share them.
+Decodes every clip in a DLC to WAV: your stock DLC (`dlc/stock.dlc`, or `FURBY_STOCK_DLC`; see [Your stock DLC](../README.md#your-stock-dlc)) by default, into `build/voice/` (`-o` to change). The stock clips are Hasbro's, so keep them in `build/` and don't share them.
 
 ```bash
 uv run audioutils/extract_voice.py [some.dlc] [-o build/voice]

@@ -2,11 +2,9 @@
 
 Audio that ships with the repo for building DLCs. Furby Connect plays GeneralPlus A1800 `.a18` audio at 16 kHz, mono.
 
-- **`imperial_march-16000_wav.a18`**: the Imperial March. `spooky_eyes.py` plays it on action 75-0-4-4 by default (`--song`).
-- **`darkside_wav.a18`**: a clip of about 15 seconds. `spooky_eyes.py` plays it on 75-0-3-4 by default (`--sting`).
-- **`toccata_in_d_minor_16khz.wav`**: the first 20 seconds of Bach's Toccata and Fugue in D Minor, public domain. The Halloween show plays 5 seconds of it; see [TOCCATA_CONVERSION.md](TOCCATA_CONVERSION.md) and [TOCCATA_EXAMPLE.md](../../TOCCATA_EXAMPLE.md).
+- **`toccata_bwv565_opening.wav`**: the opening of Bach's Toccata and Fugue in D Minor, about 17 seconds, rendered from the public-domain score by [`tools/toccata.py`](../../tools/toccata.py) with a simple synthesized organ, so no performer's recording is involved. The Halloween show plays 5 seconds of it, and `spooky_eyes.py` plays it on action 75-0-4-4 by default (`--song`). See [TOCCATA_CONVERSION.md](TOCCATA_CONVERSION.md) and [TOCCATA_EXAMPLE.md](../../TOCCATA_EXAMPLE.md).
 
-Don't add files here: put your own audio and anything you convert in `build/`, which git ignores. CI fails if audio other than these three files is committed.
+Don't add files here: put your own audio and anything you convert in `build/`, which git ignores. CI fails if audio other than this file is committed. (The repo used to carry other clips here, whose sources couldn't be shared; they're gone.)
 
 ## Converting audio to .a18
 

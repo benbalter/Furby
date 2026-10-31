@@ -2,12 +2,12 @@
 ## Python tools for handling Furby Connect DLC files
 
 <p align="center">
-	<img src="images/gifs/gif-full-padding-100.gif">
+	<img src="images/demon_eyes.gif" alt="Two glowing red demon eyes, drawn by spooky_eyes.py">
 </p>
 
 **Disclaimer: This script is pretty alpha; use at your own risk. Bad DLCs can make your Furby Connect very unhappy.**
 
-### The original blog post can be found [here](https://www.contextis.com/blog/dont-feed-them-after-midnight-reverse-engineering-the-furby-connect)
+### The original blog post can be found [here](https://web.archive.org/web/20180917194149/https://www.contextis.com/blog/dont-feed-them-after-midnight-reverse-engineering-the-furby-connect)
 
 ## What this fork adds
 
@@ -46,7 +46,8 @@ You need:
    ```
 
    If your Mac offers to install its command line developer tools for `git`, say yes. Or skip git: on [the repository's page](https://github.com/benbalter/Furby), click **Code → Download ZIP**, unzip it, and `cd` into the folder it makes, `Furby-master`.
-5. Check everything's in place:
+5. Put your Furby Connect's stock DLC at `dlc/stock.dlc`. Every build starts from it, and it's Hasbro's, so it isn't in this repository: see [Your stock DLC](#your-stock-dlc) for where to find one.
+6. Check everything's in place:
 
    ```bash
    uv run doctor.py
@@ -191,6 +192,16 @@ The test suite includes:
 With [MicroPython](https://micropython.org)'s Unix port installed (`brew install micropython`), the show engine is also tested under MicroPython, as it runs on the board. Lint with [ruff](https://docs.astral.sh/ruff/): `uv run ruff check . && uv run ruff format --check .`
 
 
+## Your stock DLC
+
+Everything here builds on the Furby Connect's own DLC, the file the Furby Connect World app downloaded for it: `tu003410.dlc` for English-speaking Furbies. A Furby needs its action table, sequences and motor routines to play anything, so the show, the eyes and the probes all change a copy of it rather than write one from nothing. It's Hasbro's, so this repository doesn't include it.
+
+- **Where to find it.** Hasbro's servers stopped serving it (checked October 2026). Use a copy you already have: from an old phone or tablet's app data, a backup, or a Furby-hacking project you trust.
+- **Where to put it.** At `dlc/stock.dlc` (git ignores it), or anywhere you like with `FURBY_STOCK_DLC` pointing at it: `FURBY_STOCK_DLC=~/Downloads/tu003410.dlc uv run halloween.py`. Every script finds it through [`stock_dlc.py`](stock_dlc.py), and stops with these steps if it's missing.
+- **Tests and CI** don't need it. [`tools/synthetic_dlc.py`](tools/synthetic_dlc.py) builds a stand-in with the same layout (the action table, scene slots, eye playlists) and none of Hasbro's content: tones for audio and a drawn eye. It's for testing only; don't flash it.
+
+Don't commit or share a stock DLC, or anything built from it: CI fails on any `.dlc` in the repository.
+
 ## DLC Class
 
 This class is a wrapper around the syntax used by Furby Connect DLC files. To use it, add the line `from furby import dlc` to the top of your script:
@@ -207,10 +218,10 @@ def main():
     ...
 ```
 
-The class is most useful when instantiated with an existing Furby Connect DLC file. This can be done by passing the path to such a file when creating an instance of the class:
+The class is most useful when instantiated with an existing Furby Connect DLC file, such as the stock one you bring yourself (see [Your stock DLC](#your-stock-dlc)). This can be done by passing the path to such a file when creating an instance of the class:
 
 ```
-D = dlc("./dlc/dlc2/tu003410.dlc")
+D = dlc("./dlc/stock.dlc")
 ```
 
 You can then access each of the various sections contained in the DLC via the `dlc_sections` dictionary:
@@ -235,7 +246,7 @@ response_scheduling  = D.dlc_sections["SEQ"].sequences
 servo_movements      = D.dlc_sections["MTR"].animations
 ```
 
-For more information on what each section does and how they relate to one another, [check out our writeup](https://www.contextis.com/blog/dont-feed-them-after-midnight-reverse-engineering-the-furby-connect), which covers it in a fair amount of detail.
+For more information on what each section does and how they relate to one another, [check out our writeup](https://web.archive.org/web/20180917194149/https://www.contextis.com/blog/dont-feed-them-after-midnight-reverse-engineering-the-furby-connect), which covers it in a fair amount of detail.
 
 <p align="center">
 	<img src="images/dlc_hierarchy.png">
@@ -347,7 +358,7 @@ D.dlc_sections["AMF"].replace_track(n, "mytrack.a18")
 
 ```
 # Shrink a DLC
-D = dlc("./dlc/dlc2/tu003410.dlc")
+D = dlc("./dlc/stock.dlc")
 D.dlc_sections["AMF"].minify_audio()
 D.build("/tmp/minified_dlc.dlc")
 ```
@@ -408,10 +419,10 @@ See [audioutils/README.md](audioutils/README.md) for more information.
 
 ## Example: Making Furby Play Toccata in D Minor
 
-The repo includes the opening 20 seconds of Bach's Toccata and Fugue in D Minor (public domain) as `audio/new_audio/toccata_in_d_minor_16khz.wav`; the Halloween show already plays 5 seconds of it. To put it on a Furby by itself, encode a snippet and build it into a DLC with the spooky eyes:
+The repo includes the opening of Bach's Toccata and Fugue in D Minor as `audio/new_audio/toccata_bwv565_opening.wav`: [`tools/toccata.py`](tools/toccata.py) plays it from the public-domain score with a simple synthesized organ, so no performer's recording is involved. The Halloween show already plays 5 seconds of it. To put it on a Furby by itself, encode a snippet and build it into a DLC with the spooky eyes:
 
 ```bash
-uv run audioutils/encode_a18.py audio/new_audio/toccata_in_d_minor_16khz.wav build/toccata.a18 --duration 10
+uv run audioutils/encode_a18.py audio/new_audio/toccata_bwv565_opening.wav build/toccata.a18 --duration 10
 uv run spooky_eyes.py --song build/toccata.a18   # build/spooky_demon.dlc, about 175 KB
 cp build/spooky_demon.dlc build/toccata.dlc      # the Furby stores 8.3 names, so flash.py needs 8 letters or fewer
 uv run flash.py build/toccata.dlc
@@ -423,7 +434,7 @@ uv run porch.py --action 75,0,4,4
 ```python
 from furby import dlc
 
-D = dlc("./dlc/dlc2/tu003410.dlc")
+D = dlc("./dlc/stock.dlc")
 D.replace_audio((75,0,0,0), ["./build/toccata.a18"])
 D.build("./build/toccata.dlc")
 ```
@@ -547,7 +558,7 @@ Then run `uv run porch.py --check` and wake the Furbies, one and then the other 
 
 ## License
 
-Files marked `SPDX-License-Identifier: MIT` (the Halloween show, the firmware, and the audio tools in `audioutils/` that carry that header) are available under the [MIT License](LICENSES/MIT.txt). The rest of the repository comes from [Context's original project](https://github.com/ctxis/Furby), which doesn't state a license, so those files stay under Context's terms. Hasbro owns the Furby name and the stock DLC, audio and artwork included here.
+Files marked `SPDX-License-Identifier: MIT` (the Halloween show, the firmware, and the audio tools in `audioutils/` that carry that header) are available under the [MIT License](LICENSES/MIT.txt). The rest of the repository comes from [Context's original project](https://github.com/ctxis/Furby), which doesn't state a license, so those files stay under Context's terms. Hasbro owns the Furby name and the stock DLC, its audio and artwork. None of that is in the current repository: bring your own stock DLC (see [Your stock DLC](#your-stock-dlc)). Commits from before this change, inherited from Context's project, still hold copies of stock DLCs and art extracted from them, as Context's own repository does.
 
 Generated audio and DLCs live in `build/`, which git ignores. Don't commit or publish voice clips cloned from the Furby, or DLCs built from the stock one.
 
@@ -564,7 +575,7 @@ We really hope you enjoy tinkering with the scripts. If you'd like to contribute
 Enjoy - we're looking forward to seeing what you make with it!
 
 ## Further Reading
-- [Reverse Engineering the Furby Connect (Context IS Blog Post)](https://www.contextis.com/blog/dont-feed-them-after-midnight-reverse-engineering-the-furby-connect)
+- [Reverse Engineering the Furby Connect (Context IS Blog Post)](https://web.archive.org/web/20180917194149/https://www.contextis.com/blog/dont-feed-them-after-midnight-reverse-engineering-the-furby-connect)
 - [Paul Stone's FurBLE Web Bluetooth Controller](https://github.com/pdjstone/furby-web-bluetooth)
 - [Jeija's Bluefluff project](https://github.com/Jeija/bluefluff)
 - [L0ss & Swarley's Furbhax project](https://github.com/swarley7/furbhax)

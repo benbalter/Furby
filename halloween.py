@@ -42,6 +42,7 @@ from array import array
 
 import a1800_codec
 
+import stock_dlc
 from flash import check_name
 from furby import dlc
 from furbyshow import EFFECTS, ENVELOPE_HZ, LIGHT_HZ, LIGHT_MAX_HZ, scale, step_parts
@@ -508,7 +509,7 @@ def build_show(
     show,
     out_dir="./build/halloween",
     skip_missing=False,
-    dlc_in="./dlc/dlc2/tu003410.dlc",
+    dlc_in=None,
     lock_path=None,
     reshuffle=False,
     verbose=False,
@@ -523,6 +524,7 @@ def build_show(
         raise SystemExit("show.toml needs a [show] table with gap and every; see halloween/show.toml in the repo")
     check_settings(show["show"])
     os.makedirs(out_dir, exist_ok=True)
+    dlc_in = stock_dlc.require(dlc_in)
     slots = quick_slots(dlc(dlc_in))
     previous = read_json(os.path.join(out_dir, "show.json"))
     lock = None if reshuffle else read_json(lock_path)

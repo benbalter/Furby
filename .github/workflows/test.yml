@@ -108,9 +108,10 @@ jobs:
         args: --offline --include-fragments --no-progress './**/*.md'
         jobSummary: false
 
-  # Generated audio and DLCs belong in build/, which is gitignored. Cloned
-  # Furby voices and DLCs built from the stock one must never be committed, so
-  # fail if any audio or DLC shows up beyond the files that came with the repo.
+  # Generated audio and DLCs belong in build/, which is gitignored. Hasbro's
+  # stock DLC, anything built from it, cloned Furby voices and audio of unknown
+  # origin must never be committed, so fail on any DLC, and on any audio or
+  # archive but the Toccata rendered by tools/toccata.py.
   no-generated-files:
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -118,8 +119,8 @@ jobs:
     - uses: actions/checkout@v7
     - name: Check for committed audio, DLCs and build output
       run: |
-        allowed='^(dlc/dlc2/tu003410\.dlc|audio/new_audio/(darkside_wav\.a18|imperial_march-16000_wav\.a18|toccata_in_d_minor_16khz\.wav))$'
-        found=$(git ls-files 'build/*' '*.wav' '*.mp3' '*.m4a' '*.aiff' '*.a18' '*.dlc' | grep -Ev "$allowed" || true)
+        allowed='^audio/new_audio/toccata_bwv565_opening\.wav$'
+        found=$(git ls-files 'build/*' '*.wav' '*.mp3' '*.m4a' '*.aiff' '*.a18' '*.dlc' '*.zip' | grep -Ev "$allowed" || true)
         if [ -n "$found" ]; then
           echo "These generated files shouldn't be committed (keep them in build/):"
           echo "$found"

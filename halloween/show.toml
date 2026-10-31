@@ -62,7 +62,7 @@ evillaugh = "build/sfx/evil-laugh-0.wav"
 # Music: a clip can be a table that cuts a snippet. Audio costs about 2 KB a
 # second, and each DLC must stay under about 350 KB. The opening bars are
 # enough to recognize, and a Furby's speaker doesn't do music any favors.
-toccata = { path = "audio/new_audio/toccata_in_d_minor_16khz.wav", seconds = 5 }
+toccata = { path = "audio/new_audio/toccata_bwv565_opening.wav", seconds = 5 }
 # The Ghostbusters theme is copyrighted, so it isn't in the repo: put your own
 # copy at this path (any format ffmpeg reads). Until then, its scenes are skipped.
 # "before" holds a beat after "Who you gonna call?" for the kids to shout it:

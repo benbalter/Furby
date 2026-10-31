@@ -7,13 +7,29 @@ This test suite validates the Python 3 migration and core functionality
 of the Furby Connect DLC file parser and builder.
 """
 
+import atexit
 import os
 import shutil
+import sys
 import tempfile
 import types
 import unittest
 
-from furby import dlc
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "tools"))
+import synthetic_dlc  # noqa: E402
+
+from furby import dlc  # noqa: E402
+
+# Hasbro's stock DLC can't ship with the repo, so the tests build on a stand-in with its layout and none of its
+# content (tools/synthetic_dlc.py), made once here. FURBY_STOCK_DLC points the scripts at it too. CLIP and SONG
+# stand in for clips: tones that open quietly, as a spoken line does.
+FIXTURES = tempfile.mkdtemp(prefix="furby-tests-")
+atexit.register(shutil.rmtree, FIXTURES, True)
+STOCK = synthetic_dlc.build(os.path.join(FIXTURES, "stock.dlc"))
+os.environ["FURBY_STOCK_DLC"] = STOCK
+CLIP = synthetic_dlc.write_tone(os.path.join(FIXTURES, "clip.a18"), 4.0, 330, lead=0.5)
+SONG = synthetic_dlc.write_tone(os.path.join(FIXTURES, "song.a18"), 8.0, 262, lead=0.5)
+TOCCATA = "./audio/new_audio/toccata_bwv565_opening.wav"  # rendered from the score by tools/toccata.py
 
 
 class TestDLCLoading(unittest.TestCase):
@@ -21,7 +37,7 @@ class TestDLCLoading(unittest.TestCase):
 
     def setUp(self):
         """Set up test fixtures"""
-        self.test_dlc_path = "./dlc/dlc2/tu003410.dlc"
+        self.test_dlc_path = STOCK
         if not os.path.exists(self.test_dlc_path):
             self.skipTest("Test DLC file not found")
 
@@ -54,7 +70,7 @@ class TestDLCBuilding(unittest.TestCase):
 
     def setUp(self):
         """Set up test fixtures"""
-        self.test_dlc_path = "./dlc/dlc2/tu003410.dlc"
+        self.test_dlc_path = STOCK
         if not os.path.exists(self.test_dlc_path):
             self.skipTest("Test DLC file not found")
         self.temp_dir = tempfile.mkdtemp()
@@ -116,7 +132,7 @@ class TestPython3Compatibility(unittest.TestCase):
 
     def setUp(self):
         """Set up test fixtures"""
-        self.test_dlc_path = "./dlc/dlc2/tu003410.dlc"
+        self.test_dlc_path = STOCK
         if not os.path.exists(self.test_dlc_path):
             self.skipTest("Test DLC file not found")
 
@@ -146,7 +162,7 @@ class TestSectionAccess(unittest.TestCase):
 
     def setUp(self):
         """Set up test fixtures"""
-        self.test_dlc_path = "./dlc/dlc2/tu003410.dlc"
+        self.test_dlc_path = STOCK
         if not os.path.exists(self.test_dlc_path):
             self.skipTest("Test DLC file not found")
         self.D = dlc(self.test_dlc_path)
@@ -179,7 +195,7 @@ class TestCustomEyes(unittest.TestCase):
 
     def setUp(self):
         """Set up test fixtures"""
-        self.test_dlc_path = "./dlc/dlc2/tu003410.dlc"
+        self.test_dlc_path = STOCK
         if not os.path.exists(self.test_dlc_path):
             self.skipTest("Test DLC file not found")
         self.temp_dir = tempfile.mkdtemp()
@@ -254,7 +270,7 @@ class TestCustomEyes(unittest.TestCase):
         import spooky_eyes
         stock = dlc(self.test_dlc_path)
         slots = spooky_eyes.scene_slots(stock)
-        clip = "./audio/new_audio/darkside_wav.a18"
+        clip = CLIP
         eyes = {slots[0]: "ghost", slots[1]: "demon"}
         path = spooky_eyes.build("demon", clips=dict.fromkeys(slots[:3], clip), eyes=eyes, out_dir=self.temp_dir)
         self.assertLess(os.path.getsize(path), spooky_eyes.MAX_UPLOAD)
@@ -353,8 +369,8 @@ class TestCustomEyes(unittest.TestCase):
         import spooky_eyes
         output_path = spooky_eyes.build(
             "demon",
-            "./audio/new_audio/imperial_march-16000_wav.a18",
-            "./audio/new_audio/darkside_wav.a18",
+            SONG,
+            CLIP,
             out_dir=self.temp_dir,
         )
         self.assertLess(os.path.getsize(output_path), spooky_eyes.MAX_UPLOAD)
@@ -365,7 +381,7 @@ class TestHalloween(unittest.TestCase):
 
     def setUp(self):
         """Set up test fixtures"""
-        if not os.path.exists("./dlc/dlc2/tu003410.dlc"):
+        if not os.path.exists(STOCK):
             self.skipTest("Test DLC file not found")
         self.temp_dir = tempfile.mkdtemp()
 
@@ -377,7 +393,7 @@ class TestHalloween(unittest.TestCase):
     def test_scene_slots_are_exclusive(self):
         """Each scene slot plays one track that no other 75 action plays"""
         import spooky_eyes
-        D = dlc("./dlc/dlc2/tu003410.dlc")
+        D = dlc(STOCK)
         slots = spooky_eyes.scene_slots(D)
         self.assertGreaterEqual(len(slots), 20)
         others = [t for c in spooky_eyes._actions(D, [75]) for t in spooky_eyes._tracks(D, c)]
@@ -390,11 +406,11 @@ class TestHalloween(unittest.TestCase):
 
         import halloween
         import spooky_eyes
-        clip = "./audio/new_audio/darkside_wav.a18"
+        clip = CLIP
         show = {
             "show": {"gap": 0.5, "every": [30, 60], "cooldown": 20},
             "furbies": {
-                "pink": {"theme": "demon", "clips": {"a": clip, "b": "./audio/new_audio/imperial_march-16000_wav.a18"}},
+                "pink": {"theme": "demon", "clips": {"a": clip, "b": SONG}},
                 "blue": {"theme": "pumpkin", "clips": {"c": {"path": clip, "before": 1.0}, "gone": "./no/such/clip.wav"}},
             },
             "scenes": [{"steps": ["pink.a", "blue.c"], "greeting": True}, {"steps": ["blue.gone"], "greeting": True}],
@@ -536,7 +552,7 @@ class TestHalloween(unittest.TestCase):
     def test_failed_build_keeps_the_last_good_one(self):
         """If one Furby's DLC fails to build, neither DLC nor show.json changes"""
         import halloween
-        clip = "./audio/new_audio/darkside_wav.a18"
+        clip = CLIP
         show = {
             "show": {"gap": 0.5, "every": [30, 60]},
             "furbies": {"pink": {"eyes": ["demon"], "clips": {"a": clip}},
@@ -568,7 +584,7 @@ class TestHalloween(unittest.TestCase):
         import json
 
         import halloween
-        clip = "./audio/new_audio/darkside_wav.a18"
+        clip = CLIP
         show = {
             "show": {"gap": 0.5, "every": [30, 60]},
             "furbies": {
@@ -587,7 +603,7 @@ class TestHalloween(unittest.TestCase):
         first, out = build()
         self.assertIn("First build", out)
         self.assertTrue(os.path.exists(lock))
-        show["furbies"]["pink"]["clips"]["a"] = "./audio/new_audio/imperial_march-16000_wav.a18"  # sorts first
+        show["furbies"]["pink"]["clips"]["a"] = SONG  # sorts first
         second, out = build()
         for k in ("b", "c"):
             self.assertEqual(second["furbies"]["pink"]["clips"][k]["action"], first["furbies"]["pink"]["clips"][k]["action"])
@@ -601,19 +617,19 @@ class TestHalloween(unittest.TestCase):
         with contextlib.redirect_stdout(out):
             with open(halloween.build_show(show, self.temp_dir, lock_path=lock, reshuffle=True)) as f:
                 third = json.load(f)
-        slots = [list(c) for c in halloween.quick_slots(dlc("./dlc/dlc2/tu003410.dlc"))]
+        slots = [list(c) for c in halloween.quick_slots(dlc(STOCK))]
         self.assertEqual([third["furbies"]["pink"]["clips"][k]["action"] for k in "abc"], slots[:3])
 
     def test_dlc_budget(self):
         """The size report's parts add up to the DLC, and it says what to cut when it's too big"""
         import halloween
         import spooky_eyes
-        D = dlc("./dlc/dlc2/tu003410.dlc")
+        D = dlc(STOCK)
         slots = halloween.quick_slots(D)
         codes = {"a": slots[0], "b": slots[1]}
         path = spooky_eyes.build(
             "demon",
-            clips={slots[0]: "./audio/new_audio/darkside_wav.a18", slots[1]: "./audio/new_audio/imperial_march-16000_wav.a18"},
+            clips={slots[0]: CLIP, slots[1]: SONG},
             out_dir=self.temp_dir,
             name="pink",
             eyes={slots[1]: "ghost"},
@@ -649,7 +665,7 @@ class TestHalloween(unittest.TestCase):
         import json
 
         import halloween
-        clip = "./audio/new_audio/darkside_wav.a18"
+        clip = CLIP
         self.assertEqual(halloween.clip_spec({"path": clip, "text": "Boo!"})["text"], "Boo!")
 
         def show(text):
@@ -679,13 +695,13 @@ class TestHalloween(unittest.TestCase):
     def test_envelope(self):
         """A clip's envelope is one loudness digit per 100 ms of what the Furby plays"""
         import halloween
-        for path in ("./audio/new_audio/darkside_wav.a18", "./audio/new_audio/imperial_march-16000_wav.a18"):
+        for path in (CLIP, SONG):
             env = halloween.envelope(path)
             seconds = (os.path.getsize(path) - 6) / halloween.A18_BYTES_PER_SECOND
             self.assertAlmostEqual(len(env), seconds * 10, delta=1)
             self.assertTrue(env.isdigit())
             self.assertIn("9", env)  # its loudest moment
-        self.assertTrue(halloween.envelope("./audio/new_audio/darkside_wav.a18").startswith("0000"))  # it opens quietly
+        self.assertTrue(halloween.envelope(CLIP).startswith("0000"))  # it opens quietly
         # Something the codec can't read just loses its envelope (the light glows at full volume)
         from unittest import mock
         bad = os.path.join(self.temp_dir, "bad.a18")
@@ -734,7 +750,7 @@ class TestHalloween(unittest.TestCase):
 
         import halloween
         import spooky_eyes
-        clip = "./audio/new_audio/darkside_wav.a18"
+        clip = CLIP
         show = {
             "show": {"gap": 0.5, "every": [30, 60], "one_eye_animation": True},
             "furbies": {"pink": {"eyes": ["storm", "demon"], "clips": {"a": clip, "b": {"path": clip, "eyes": "ghost"}}}},
@@ -754,7 +770,7 @@ class TestHalloween(unittest.TestCase):
         import json
 
         import halloween
-        song = {"path": "./audio/new_audio/toccata_in_d_minor_16khz.wav", "start": "0:02", "seconds": 3}
+        song = {"path": TOCCATA, "start": "0:02", "seconds": 3}
         show = {
             "show": {"gap": 0.5, "every": [30, 60]},
             "furbies": {
@@ -2018,7 +2034,7 @@ class TestEyeCheck(unittest.TestCase):
     """eyecheck composes a DLC's eyes the way the Furby does and fails what won't show as intended"""
 
     def setUp(self):
-        self.stock_path = "./dlc/dlc2/tu003410.dlc"
+        self.stock_path = STOCK
         if not os.path.exists(self.stock_path):
             self.skipTest("Test DLC file not found")
         self.temp_dir = tempfile.mkdtemp()
@@ -2059,7 +2075,7 @@ class TestEyeCheck(unittest.TestCase):
         import eyecheck
         import spooky_eyes
         slots = spooky_eyes.scene_slots(dlc(self.stock_path))
-        clip = "./audio/new_audio/darkside_wav.a18"
+        clip = CLIP
         path = spooky_eyes.build("demon", clips={slots[0]: clip}, eyes={slots[0]: "ghost"}, out_dir=self.temp_dir)
         errors, _ = eyecheck.check(dlc(path))
         self.assertTrue(any("24 SPR playlists" in e for e in errors), errors)
@@ -2144,7 +2160,7 @@ class TestEmulator(unittest.TestCase):
     """emulate.py's virtual Furby answers like the hardware, on a virtual clock"""
 
     def setUp(self):
-        if not os.path.exists("./dlc/dlc2/tu003410.dlc"):
+        if not os.path.exists(STOCK):
             self.skipTest("Test DLC file not found")
         self.temp_dir = tempfile.mkdtemp()
 
@@ -2156,8 +2172,8 @@ class TestEmulator(unittest.TestCase):
         import halloween
         import spooky_eyes
 
-        slots = halloween.quick_slots(dlc("./dlc/dlc2/tu003410.dlc"))[:n]
-        clip = "./audio/new_audio/darkside_wav.a18"
+        slots = halloween.quick_slots(dlc(STOCK))[:n]
+        clip = CLIP
         path = spooky_eyes.build("demon", clips=dict.fromkeys(slots, clip), out_dir=self.temp_dir, name=name, **kw)
         return path, slots
 
@@ -2285,7 +2301,7 @@ class TestEmulator(unittest.TestCase):
         good, _ = self.build("pink", n=1)
         multi = spooky_eyes.build(
             "demon",
-            clips={spooky_eyes.DEMO_ACTIONS[0]: "./audio/new_audio/darkside_wav.a18"},
+            clips={spooky_eyes.DEMO_ACTIONS[0]: CLIP},
             eyes={spooky_eyes.DEMO_ACTIONS[0]: "ghost"},
             out_dir=self.temp_dir,
             name="probe",
@@ -2322,7 +2338,7 @@ class TestPreview(unittest.TestCase):
     """preview.py's virtual porch replays emulate's timeline, with the DLCs' own sound and eyes"""
 
     def setUp(self):
-        if not os.path.exists("./dlc/dlc2/tu003410.dlc"):
+        if not os.path.exists(STOCK):
             self.skipTest("Test DLC file not found")
         self.temp_dir = tempfile.mkdtemp()
 
@@ -2389,7 +2405,7 @@ class TestAudioUtils(unittest.TestCase):
 
     def setUp(self):
         """Set up test fixtures"""
-        if not os.path.exists("./dlc/dlc2/tu003410.dlc"):
+        if not os.path.exists(STOCK):
             self.skipTest("Test DLC file not found")
         self.temp_dir = tempfile.mkdtemp()
 
@@ -2404,7 +2420,7 @@ class TestAudioUtils(unittest.TestCase):
         sys.path.insert(0, "./audioutils")
         import extract_voice
         rows = extract_voice.extract(out_dir=self.temp_dir)
-        self.assertEqual(len(rows), 146)
+        self.assertEqual(len(rows), len(dlc(STOCK).dlc_sections["AMF"].tracks))
         self.assertTrue(all(float(r[2]) > 0 for r in rows))
         self.assertTrue(os.path.exists(os.path.join(self.temp_dir, "index.csv")))
 
@@ -2504,8 +2520,6 @@ class TestProbe(unittest.TestCase):
 
         import probe
         import spooky_eyes
-        if not os.path.exists(probe.STOCK_DLC):
-            self.skipTest("Test DLC file not found")
         self.said = []
         with mock.patch("builtins.print"):
             path = probe.build("motions", [0xE000, 0xE005, 0xE028], out_dir=self.temp_dir, say=self.say)
@@ -2514,7 +2528,7 @@ class TestProbe(unittest.TestCase):
         with open(os.path.join(self.temp_dir, "motions.json")) as f:
             plan = json.load(f)
         D = dlc(path)
-        slots = spooky_eyes.scene_slots(dlc(probe.STOCK_DLC))
+        slots = spooky_eyes.scene_slots(dlc(STOCK))
         for entry, code, motor in zip(plan["slots"], slots[:3], (0xE000, 0xE005, 0xE028), strict=True):
             self.assertEqual(tuple(entry["action"]), code)
             self.assertEqual(D.dlc_sections["SEQ"].sequences[spooky_eyes._seq(D, code)][2:], [motor, 0x8401, 0])
@@ -3092,7 +3106,7 @@ class TestRealShow(unittest.TestCase):
         import halloween
         sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "tools"))
         import ci_show
-        if not os.path.exists("./dlc/dlc2/tu003410.dlc"):
+        if not os.path.exists(STOCK):
             self.skipTest("Test DLC file not found")
         temp_dir = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, temp_dir)
@@ -3570,7 +3584,7 @@ class TestPackage(unittest.TestCase):
         self.plan["furbies"]["pink"]["clips"] = {
             "boo": {"source": "build/cloned/pink_boo.wav"},
             "toccata": {"source": "build/halloween/pink/toccata.wav"},  # a cut clip's snippet
-            "march": {"source": "audio/new_audio/imperial_march-16000_wav.a18"},  # comes with the repo
+            "toccata2": {"source": "audio/new_audio/toccata_bwv565_opening.wav"},  # comes with the repo
             "gone": {"source": "build/cloned/pink_gone.wav"},
         }
         with open("build/halloween/show.json", "w") as f:
@@ -3639,7 +3653,7 @@ class TestBlogMedia(unittest.TestCase):
         sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "tools"))
         import blog_media
 
-        if not os.path.exists("./dlc/dlc2/tu003410.dlc"):
+        if not os.path.exists(STOCK):
             self.skipTest("Test DLC file not found")
         temp_dir = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, temp_dir)

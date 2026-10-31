@@ -4,7 +4,7 @@
 #
 # Copy the Halloween show to an ESP32 running MicroPython, over USB.
 #
-#   firmware/deploy.sh            # first board found
+#   firmware/deploy.sh            # the ESP32 on USB (found by its vendor ID)
 #   PORT=/dev/cu.usbmodem1101 firmware/deploy.sh
 #
 # Installs aioble (pinned), compiles the show engine and the phone remote to
@@ -33,11 +33,16 @@ trap 'rm -rf "$work"' EXIT
 uvx --from mpy-cross mpy-cross -o "$work/furbyshow.mpy" furbyshow.py
 uvx --from mpy-cross mpy-cross -o "$work/remote.mpy" firmware/remote.py
 
-mpremote=(uvx mpremote connect "${PORT:-auto}")
+# Only an Espressif board: mpremote's "auto" takes any USB serial port, such as
+# other boards plugged into the same Mac
+if [[ -z ${PORT:-} ]]; then
+  PORT=$(uv run --quiet tools/watch_board.py --find)
+fi
+mpremote=(uvx mpremote connect "$PORT")
 "${mpremote[@]}" mip install "${AIOBLE[@]}"
 # MicroPython imports a .py ahead of its .mpy, so an old hand copy would hide the new one
 for stale in furbyshow.py remote.py; do
   "${mpremote[@]}" rm ":$stale" >/dev/null 2>&1 || true
 done
 "${mpremote[@]}" cp "$work/furbyshow.mpy" "$work/remote.mpy" firmware/main.py "$SHOW" : + reset
-echo "Deployed. The show starts in a few seconds; watch it with: uv run tools/watch_board.py${PORT:+ --port $PORT}"
+echo "Deployed. The show starts in a few seconds; watch it with: uv run tools/watch_board.py"

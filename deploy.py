@@ -296,7 +296,7 @@ def main(args, ask=input, log=print, scan=flash.scan, connect=connect, run=subpr
         if run([os.path.join(HERE, "firmware", "deploy.sh")]).returncode:
             raise DeployError(
                 "The Furbies are done, but copying to the ESP32 failed. Plug it in over USB and run "
-                "firmware/deploy.sh (PORT=/dev/cu.usbmodem... if there's more than one board)."
+                "firmware/deploy.sh (PORT=/dev/cu.usbmodem... if there's more than one ESP32)."
             )
         results["esp32"] = "show copied"
     log("\nAll done:")

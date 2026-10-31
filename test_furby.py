@@ -3365,6 +3365,53 @@ class TestWatchBoard(unittest.TestCase):
         self.assertEqual(saved.getvalue().splitlines(), lines)
         self.assertTrue(any("waiting" in line for line in out))
 
+    def test_find_port(self):
+        """Only an Espressif board counts: other USB serial boards (glasses, a Flipper) never do"""
+        import sys
+
+        sys.path.insert(0, "tools")
+        try:
+            import watch_board
+        finally:
+            sys.path.remove("tools")
+        glasses = ("/dev/cu.usbmodem114401", 0x239A, "nRF52840 LED Glasses Driver")
+        flipper = ("/dev/cu.usbmodemflip_Padriro1", 0x0483, "Flipper Padriro")
+        bluetooth = ("/dev/cu.Bluetooth-Incoming-Port", None, "n/a")
+        esp32 = ("/dev/cu.usbmodem114101", watch_board.ESPRESSIF, "USB JTAG/serial debug unit")
+        self.assertIsNone(watch_board.find_port([glasses, flipper, bluetooth]))
+        self.assertEqual(watch_board.find_port([glasses, esp32, flipper]), esp32[0])
+        why = watch_board.not_found([glasses, bluetooth])
+        self.assertIn("LED Glasses", why)
+        self.assertNotIn("Bluetooth", why)
+        self.assertIn("Plug the board in", watch_board.not_found([bluetooth]))
+
+    def test_doctor_never_uses_any_port(self):
+        """doctor --board asks watch_board for the ESP32's port, and stops if there isn't one"""
+        import subprocess
+
+        import doctor
+
+        calls = []
+
+        def run(cmd, **kw):
+            calls.append(cmd)
+            if "--find" in cmd:
+                return subprocess.CompletedProcess(cmd, 1, "", "No ESP32 on USB, only: /dev/x (Glasses).\n")
+            return subprocess.CompletedProcess(cmd, 0, '{"files": {}}\n', "")
+
+        self.assertEqual(doctor.probe_board(run=run), "No ESP32 on USB, only: /dev/x (Glasses)")
+        self.assertEqual(len(calls), 1)  # never reached mpremote
+        calls.clear()
+
+        def found(cmd, **kw):
+            calls.append(cmd)
+            out = "/dev/cu.usbmodem114101\n" if "--find" in cmd else '{"files": {}}\n'
+            return subprocess.CompletedProcess(cmd, 0, out, "")
+
+        self.assertEqual(doctor.probe_board(run=found), {"files": {}})
+        self.assertIn("/dev/cu.usbmodem114101", calls[1])
+        self.assertNotIn("auto", calls[1])
+
 
 class FakeEngine:
     """A text-to-speech engine that writes the words and voice instead of audio"""

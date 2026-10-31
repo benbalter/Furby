@@ -357,8 +357,31 @@ def aioble_manifest(deploy_sh, mpy):
         return None
 
 
+def board_port(run=subprocess.run):
+    """The ESP32's port from tools/watch_board.py, or an error string. Never mpremote's "auto",
+    which takes any USB serial port, such as other boards plugged into the same Mac."""
+    try:
+        find = [
+            "uv",
+            "run",
+            "--quiet",
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), "tools", "watch_board.py"),
+            "--find",
+        ]
+        result = run(find, capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError) as e:
+        return None, str(e)
+    if result.returncode:
+        return None, (result.stderr or result.stdout).strip().rstrip(".") or "no ESP32 found"
+    return result.stdout.strip(), None
+
+
 def probe_board(port="auto", run=subprocess.run):
     """Run BOARD_PROBE on the board and restart its show; returns the probe's dict, or an error string."""
+    if port == "auto":
+        port, error = board_port(run)
+        if error:
+            return error
     try:
         result = run(
             ["uvx", "mpremote", "connect", port, "exec", BOARD_PROBE, "+", "reset"],

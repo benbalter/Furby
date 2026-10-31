@@ -305,16 +305,18 @@ class Svg:
         return path
 
 
-def box(svg, xy, title, lines=(), outline="ink", dashed=False, title_color="ink"):
-    """A labelled box."""
+def box(svg, xy, title, lines=(), outline="ink", dashed=False, title_color="ink", tag=None):
+    """A labelled box; tag is a small, muted line under the title, such as a DLC section's name."""
     x0, y0, x1, y1 = xy
     if dashed:
         svg.rect(x0, y0, x1, y1, fill="card", stroke=outline, width=2, r=14, dash=10)
     else:
         svg.rect(x0, y0, x1, y1, fill="panel", stroke=outline, width=3, r=14)
     svg.text(x0 + 18, y0 + 14, title, 26, fill=title_color, bold=True)
+    if tag:
+        svg.text(x0 + 18, y0 + 48, tag, 16)
     for i, line in enumerate(lines):
-        svg.text(x0 + 18, y0 + 52 + 28 * i, line, 20)
+        svg.text(x0 + 18, y0 + (76 if tag else 52) + 28 * i, line, 20)
 
 
 def arrow(svg, a, b, label=None, color="ink", both=False, label_at=0.5, label_dy=-30):
@@ -529,22 +531,23 @@ def eyes_pink_vs_blue(ctx):
 
 
 def architecture(ctx):
-    """The show's parts and how they talk, as an SVG that follows light and dark mode."""
+    """The show's parts and how they talk, in plain words, as an SVG that follows light and dark mode."""
     size = (1600, 1000)
     alt = (
-        "Diagram. halloween/show.toml is built by halloween.py into pink.dlc, blue.dlc and show.json, which "
-        "flash.py uploads to each Furby over Bluetooth. An ESP32 board (or a laptop running porch.py) triggers "
-        "actions on the pink and blue Furbies over Bluetooth and hears back when each starts and ends. A motion "
-        "sensor and a button start greetings on the board; an iPhone remote talks to the board over Bluetooth, "
-        "sending commands and reading its status. EyeLights glasses run on their own with no link to the show."
+        "Diagram. A show script is built into one DLC file per Furby, and each is uploaded to its Furby over "
+        "Bluetooth, which takes about two to three and a half minutes and must stay under 350 KB. A small show "
+        "board hidden on the porch (or a laptop running the same show) cues each Furby's lines over Bluetooth and "
+        "hears when each starts and ends. A motion sensor greets new arrivals and a button plays a greeting right "
+        "away. An iPhone remote talks to the board over Bluetooth to greet, pick a scene or see status. LED glasses "
+        "worn by the candy-giver show sound-reactive demon eyes and have no link to the show."
     )
     svg = Svg(size, "How the porch show fits together", alt)
     svg.text(60, 44, "How the porch show fits together", 40, fill="ink", bold=True)
-    svg.text(60, 98, "Bluetooth Low Energy (BLE) links, the build that feeds them, and the one prop that runs on "
-             "its own.", 22)  # fmt: skip
+    svg.text(60, 98, "What talks to what over Bluetooth, how the show gets onto each Furby, and the one prop that "
+             "runs on its own.", 22)  # fmt: skip
 
-    # Build pipeline
-    chips = ["show.toml", "halloween.py", "pink.dlc · blue.dlc · show.json", "flash.py"]
+    # How the show gets onto the Furbies
+    chips = ["show script", "one DLC per Furby", "uploaded over Bluetooth"]
     x, y = 60, 160
     for i, chip in enumerate(chips):
         w = text_width(chip, 21) + 44  # room for a system font a little wider than SF
@@ -554,45 +557,43 @@ def architecture(ctx):
         if i < len(chips) - 1:
             arrow(svg, (x + 6, y + 22), (x + 40, y + 22), color="muted")
             x += 46
-    svg.text(x + 16, y + 10, "BLE upload to each Furby: about 2–3½ min, about 350 KB max", 20)
+    svg.text(x + 16, y + 10, "about 2–3½ min each, 350 KB max", 20)
 
     # Controllers
-    box(svg, (60, 280, 600, 380), "or a laptop: porch.py", ["Same show engine (furbyshow.py), over bleak"],
-        outline="muted", dashed=True)  # fmt: skip
-    box(svg, (60, 420, 600, 600), "ESP32 board", ["DFRobot FireBeetle 2 ESP32-S3", "MicroPython + aioble, hidden",
-        "on the porch; LED blinks who to wake next"])  # fmt: skip
-    box(svg, (60, 720, 310, 880), "Motion sensor", ["HC-SR501 PIR", "on GPIO 4: greets", "arrivals"])
-    box(svg, (350, 720, 600, 880), "Button", ["Plays a greeting", "now; no cooldown"])
+    box(svg, (60, 280, 600, 380), "or a laptop", ["running the same show"], outline="muted", dashed=True)
+    box(svg, (60, 420, 600, 600), "Show board", ["A small Bluetooth board, hidden on the porch.",
+        "Its light says which Furby to wake next."], tag="an ESP32: DFRobot FireBeetle 2")  # fmt: skip
+    box(svg, (60, 720, 310, 880), "Motion sensor", ["Greets new", "arrivals"])
+    box(svg, (350, 720, 600, 880), "Button", ["Plays a greeting", "right away"])
     arrow(svg, (185, 720), (185, 600), "motion", label_dy=-12)
     arrow(svg, (475, 720), (475, 600), "press", label_dy=-12)
 
     # Furbies
-    box(svg, (1080, 260, 1540, 420), "Pink Furby", ["Evil · demon eyes", "PINK.DLC (stored as ____PINK.DLC)"],
-        outline="pink", title_color="pink")  # fmt: skip
-    box(svg, (1080, 470, 1540, 630), "Blue Furby", ["Friendly · pumpkin eyes", "BLUE.DLC (stored as ____BLUE.DLC)"],
-        outline="blue", title_color="blue")  # fmt: skip
+    box(svg, (1080, 260, 1540, 420), "Pink Furby", ["Evil, with demon eyes"], outline="pink", title_color="pink")
+    box(svg, (1080, 470, 1540, 630), "Blue Furby", ["Friendly, with pumpkin eyes"], outline="blue",
+        title_color="blue")  # fmt: skip
     arrow(svg, (600, 480), (1080, 340), both=True)
     arrow(svg, (600, 540), (1080, 550), both=True)
-    for i, label in enumerate(("BLE, both ways: trigger action 0x13,", "replies 20:0c start · 20:0e end")):
+    for i, label in enumerate(("Bluetooth: cues each line,", "hears when it starts and ends")):
         svg.text(840, 566 + 26 * i, label, 19, anchor="middle")
 
     # Remote and glasses
-    box(svg, (660, 740, 1020, 900), "iPhone remote", ["SwiftUI app, Nordic UART", "greet · scene N · status"])
-    arrow(svg, (760, 740), (560, 600), "BLE", both=True, label_at=0.45, label_dy=-14)
-    box(svg, (1080, 720, 1540, 900), "EyeLights glasses", ["CircuitPython · sound-reactive", "demon eyes for the",
-        "costume; no link to the show"], outline="amber", dashed=True)  # fmt: skip
+    box(svg, (660, 740, 1020, 900), "iPhone remote", ["Greet, pick a scene,", "see status"])
+    arrow(svg, (760, 740), (560, 600), "Bluetooth", both=True, label_at=0.45, label_dy=-14)
+    box(svg, (1080, 720, 1540, 900), "LED glasses", ["Worn by the candy-giver:", "sound-reactive demon eyes,",
+        "no link to the show"], outline="amber", dashed=True)  # fmt: skip
     return {
         "files": [svg.save(os.path.join(WORK, "architecture-%dx%d.svg" % size))],
         "size": size,
         "kind": "image",
         "alt": alt,
-        "caption": "One board runs the show: it triggers each Furby's lines over Bluetooth, and the Furbies say "
+        "caption": "One board runs the show: it cues each Furby's lines over Bluetooth, and the Furbies say "
         "when they're done. The glasses are a separate costume piece.",
     }
 
 
 def dlc_anatomy(ctx):
-    """One of the show's actions followed through the stock DLC's sections, with the real numbers, as an SVG."""
+    """One of the show's actions followed through the stock DLC, in plain words, with the real numbers, as an SVG."""
     import emulate
     import halloween
     from furby import dlc
@@ -605,79 +606,95 @@ def dlc_anatomy(ctx):
     apl_no = seq[1] - sec["SEQ"].playlist_offset
     tracks = [n for n, kind in sec["APL"].playlists[apl_no] if kind == "AUDIO"]
     track_bytes = sum(len(sec["AMF"].tracks[n]) for n in tracks)
-    eyes = sorted({w for w in seq[3:-1] if w >> 12 in (0x8, 0xA)})
+    seconds = track_bytes / emulate.A18_BYTES_PER_SECOND
     delays = [w for w in seq[3:-1] if w >> 12 == 0x1]
     motor = seq[2]
     action = "·".join(map(str, code))
+    # Plain names for the sections, from what the repo knows they hold (README's DLC API), not what the letters mean
+    names = {
+        "PAL": "Color palettes",
+        "SPR": "Frame lists",
+        "CEL": "Image tiles",
+        "XLS": "Action table",
+        "AMF": "Audio clips",
+        "APL": "Audio playlists",
+        "LPS": "Lip movements",
+        "SEQ": "Sequences",
+        "MTR": "Motor movements",
+    }
+    kinds = {
+        "eyes: palettes, frame lists, image tiles": ("eyes", ["PAL", "SPR", "CEL"]),
+        "audio clips": ("audio", ["AMF"]),
+        "the wiring between them: action table, sequences, playlists, lip and motor data": (
+            "links", ["XLS", "APL", "LPS", "SEQ", "MTR"]),
+    }  # fmt: skip
+    kind_of = {n: colour for colour, ns in kinds.values() for n in ns}
     alt = (
-        "Diagram of a Furby Connect DLC file. A strip shows its sections by size: PAL, SPR and CEL hold the "
-        "eyes, AMF holds the audio, and small XLS, APL, LPS, SEQ and MTR sections link them. Below, action %s goes "
-        "through XLS to sequence %d, which names audio playlist %d (track %s, about %.0f seconds), eye animations "
-        "and a body movement."
-        % (action, seq_no, apl_no, ", ".join(map(str, tracks)), track_bytes / emulate.A18_BYTES_PER_SECOND)
+        "Diagram of a Furby DLC file, the package of eyes, sounds and moves the Furby plays. A bar shows its parts "
+        "by size: the eyes (color palettes, frame lists and image tiles) and the audio clips take nearly all of it, "
+        "and a small remainder wires them together. Below, one action, number %s, the four-part number the show "
+        "sends over Bluetooth, is followed through the action table to a sequence. The sequence picks an audio "
+        "playlist (one clip of compressed audio, about %.0f seconds), a body movement and an eye animation, and "
+        "the Furby stays busy until all of them finish." % (action, seconds)
     )
 
     size = (1600, 900)
-    svg = Svg(size, "Inside a Furby Connect DLC", alt)
-    svg.text(60, 44, "Inside a Furby Connect DLC", 40, fill="ink", bold=True)
-    svg.text(60, 98, "What one action plays, followed through the stock DLC's sections (numbers read from "
-             "dlc/dlc2/tu003410.dlc).", 22)  # fmt: skip
+    svg = Svg(size, "Inside a Furby DLC", alt)
+    svg.text(60, 44, "Inside a Furby DLC", 40, fill="ink", bold=True)
+    svg.text(60, 98, "What one action plays, followed through Hasbro's stock DLC. An action is the four-part number "
+             "the show sends.", 22)  # fmt: skip
 
-    # The file's sections, as a strip in proportion to their size, coloured by what they hold
+    # The file's sections, as a bar in proportion to their size, coloured by what they hold
     order = ["PAL", "SPR", "CEL", "XLS", "AMF", "APL", "LPS", "SEQ", "MTR"]
-    kinds = {"eyes": ["PAL", "SPR", "CEL"], "audio": ["AMF"], "links": ["XLS", "APL", "LPS", "SEQ", "MTR"]}
-    kind_of = {n: kind for kind, names in kinds.items() for n in names}
     total = sum(sec[n].length for n in order)
     x0, x1, y = 60, 1540, 160
     x = x0
     for n in order:
         w = max(4, (x1 - x0) * sec[n].length / total)
         svg.rect(x, y, x + w - 2, y + 56, fill=kind_of[n])
-        if w > 54:
-            svg.text(x + 8, y + 8, n, 20, fill="ink", bold=True)
-            svg.text(x + 8, y + 32, "%d KB" % round(sec[n].length / 1000), 16)
+        if w > 160:
+            svg.text(x + 10, y + 8, names[n], 20, fill="ink", bold=True)
+            svg.text(x + 10, y + 32, "%s · %d KB" % (n, round(sec[n].length / 1000)), 16)
         x += w
-    x, ly = x0, y + 70
-    for kind, names in kinds.items():
-        svg.rect(x, ly, x + 22, ly + 22, fill=kind, stroke="rule", width=1)
-        label = "%s: %s (%d KB)" % (kind, ", ".join(names), round(sum(sec[n].length for n in names) / 1000))
-        svg.text(x + 30, ly, label, 18)
-        x += 70 + text_width(label, 18)
-    svg.text(x0, ly + 32, "%.1f MB in all. Stock DLCs come from the app; ours must stay under about 350 KB to "
+    ly = y + 70
+    for i, (label, (colour, ns)) in enumerate(kinds.items()):
+        yy = ly + 28 * i
+        svg.rect(x0, yy, x0 + 22, yy + 22, fill=colour, stroke="rule", width=1)
+        svg.text(x0 + 30, yy, "%s (%d KB)" % (label, round(sum(sec[n].length for n in ns) / 1000)), 18)
+    svg.text(x0, ly + 90, "%.1f MB in all. Stock DLCs come from the app; ours must stay under about 350 KB to "
              "upload." % (total / 1e6), 18)  # fmt: skip
 
     # The chain for one action
-    y = 340
+    y = 400
     steps = [
-        ("Action %s" % action, ["input · index ·", "subindex · specific", "sent over BLE (0x13)"]),
-        ("XLS", ["action tree:", "→ sequence %d" % seq_no]),
-        ("SEQ #%d" % seq_no, ["playlist 0x%04x" % seq[1], "motor 0x%04x" % motor,
-                               "eyes " + ", ".join("0x%04x" % w for w in eyes)]),
-        ("APL #%d" % apl_no, ["audio playlist:", "track " + ", ".join(map(str, tracks))]),
-        ("AMF", ["%d KB of A1800 audio" % round(track_bytes / 1000),
-                 "≈ %.1f s at ~2 KB/s" % (track_bytes / emulate.A18_BYTES_PER_SECOND)]),
+        ("Action %s" % action, None, ["the four-part number", "the show sends over", "Bluetooth"]),
+        ("Action table", "XLS", ["finds this action's", "sequence"]),
+        ("Sequence #%d" % seq_no, "SEQ", ["picks an audio playlist,", "a body movement and", "an eye animation"]),
+        ("Audio playlist", "APL", ["lists the clips to play:", "here, just one"]),
+        ("Audio clips", "AMF", ["%d KB of compressed" % round(track_bytes / 1000),
+                                "audio, about %.1f s" % seconds]),
     ]  # fmt: skip
     w, gap = 252, 55
-    for i, (title, lines) in enumerate(steps):
+    for i, (title, tag, lines) in enumerate(steps):
         x = 60 + i * (w + gap)
-        box(svg, (x, y, x + w, y + 170), title, lines, outline="pink" if i == 0 else "ink")
+        box(svg, (x, y, x + w, y + 170), title, lines, outline="pink" if i == 0 else "ink", tag=tag)
         if i < len(steps) - 1:
             arrow(svg, (x + w + 4, y + 85), (x + w + gap - 4, y + 85))
 
     # What else the sequence drives
     seq_x = 60 + 2 * (w + gap) + w // 2
-    y2 = 610
-    delay_s = sum((v & 0xFFF) * emulate.DELAY_UNIT_S for v in delays)
-    body = (
-        "0x%04x is one of the DLC's own routines: 10–21 s on a Furby" % motor
+    y2 = 660
+    pause_s = sum((v & 0xFFF) * emulate.DELAY_UNIT_S for v in delays)
+    move = (
+        "This one is the DLC's own routine: 10–21 s on a Furby"
         if motor >> 12 == 0xC
-        else "0x%04x is a built-in movement: about 1–10 s on a Furby" % motor
+        else "This one is built into the Furby: about 1–10 s"
     )
-    box(svg, (60, y2, 720, y2 + 200), "Eyes: SPR → CEL → PAL", ["eye word picks an animation; SPR lists its frames,",
-        "each frame is four 64×64 cels (CEL) in 64 colors", "from a palette (PAL, ARGB1555)"])  # fmt: skip
-    box(svg, (780, y2, 1540, y2 + 200), "Body: motor word, plus delays", [body,
-        "%d delay words ≈ %.1f s more (10 ms units, assumed)" % (len(delays), delay_s) if delays
-        else "No delay words in this sequence, so the movement sets its length",
+    box(svg, (60, y2, 720, y2 + 180), "Eyes", ["An eye animation is a list of frames. Each frame",
+        "is four 64×64 image tiles in 64 colors."], tag="SPR · CEL · PAL")  # fmt: skip
+    box(svg, (780, y2, 1540, y2 + 180), "Body: a movement, plus pauses", [move,
+        "%d pauses add about %.1f s more (timing assumed)" % (len(delays), pause_s) if delays
+        else "No pauses in this one, so the movement sets its length",
         "The Furby stays busy until all of it ends"])  # fmt: skip
     arrow(svg, (seq_x - 40, y + 170), (390, y2), color="muted")
     arrow(svg, (seq_x + 40, y + 170), (1160, y2), color="muted")
